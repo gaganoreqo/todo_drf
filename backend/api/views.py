@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .models import CompanyDetail, UserDetail
+from .pagination import DynamicPageNumberPagination
 from .serializers import (
     CompanyDetailSerializer,
     UserDetailSerializer,
@@ -15,6 +16,7 @@ from .serializers import (
 # and destroy actions for the UserDetail model.
 class UserDetailViewSet(viewsets.ModelViewSet):
     serializer_class = UserDetailSerializer
+    pagination_class = DynamicPageNumberPagination
 
     def get_queryset(self):
         # By default, show only active records.
@@ -63,6 +65,7 @@ class UserDetailViewSet(viewsets.ModelViewSet):
 class CompanyDetailViewSet(viewsets.ModelViewSet):
     queryset = CompanyDetail.objects.select_related('user_detail').order_by('id')
     serializer_class = CompanyDetailSerializer
+    pagination_class = DynamicPageNumberPagination
 
 
 # Lightweight API for company form dropdown options.
