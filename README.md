@@ -104,9 +104,10 @@ http://127.0.0.1:8000/api/v1/user-details/
 
 The frontend has two tabs:
 
-- Active Records: shows records where `is_deleted` is `false`
-- Deleted Records: shows records where `is_deleted` is `true`
-- Deleted Records includes a Restore button that calls the undelete API
+- User: create/update users, list active users, and restore soft-deleted users
+- Company: create/update company details using a user dropdown
+- Each user can have only one company detail record
+- The company table shows username using a backend join
 - Pagination controls send both `page` and `page_size` to the backend
 
 To use a different backend URL, create `frontend/.env` and set:
@@ -131,6 +132,12 @@ are generated automatically.
 | PATCH | `/api/v1/user-details/{id}/` | Partially update a user detail record |
 | DELETE | `/api/v1/user-details/{id}/` | Soft delete a user detail record |
 | PATCH | `/api/v1/user-details/{id}/undelete/` | Restore a soft-deleted user detail record |
+| GET | `/api/v1/user-dropdown/` | List active users for the company form dropdown |
+| GET | `/api/v1/company-details/` | List company detail records |
+| POST | `/api/v1/company-details/` | Create company details for one user |
+| PUT | `/api/v1/company-details/{id}/` | Replace company details |
+| PATCH | `/api/v1/company-details/{id}/` | Partially update company details |
+| DELETE | `/api/v1/company-details/{id}/` | Delete company details |
 
 Example request body for `POST`, `PUT`, and `PATCH`:
 
@@ -138,8 +145,50 @@ Example request body for `POST`, `PUT`, and `PATCH`:
 {
   "name": "Alex",
   "age": 25,
+  "gender": "Female"
+}
+```
+
+Example company request body:
+
+```json
+{
+  "user_detail": 1,
+  "company_name": "Apple",
+  "role": "Software Engineer",
+  "location": "Cupertino"
+}
+```
+
+Company list responses include `user_name` from the joined user:
+
+```json
+{
+  "id": 1,
+  "user_detail": 1,
+  "user_name": "Alex",
+  "company_name": "Apple",
+  "role": "Software Engineer",
+  "location": "Cupertino"
+}
+```
+
+User detail responses also include company detail as read-only nested data:
+
+```json
+{
+  "id": 1,
+  "name": "Alex",
+  "age": 25,
   "gender": "Female",
-  "is_deleted": false
+  "is_deleted": false,
+  "company_detail": {
+    "id": 1,
+    "user_detail": 1,
+    "company_name": "Apple",
+    "role": "Software Engineer",
+    "location": "Cupertino"
+  }
 }
 ```
 
@@ -149,6 +198,10 @@ Backend validation rules:
 - `age` is required and must be greater than 0
 - `gender` is required
 - `is_deleted` is read-only and controlled by soft delete/undelete APIs
+- `user_detail` is required for company details
+- company details use a foreign key user id
+- one user can have only one company detail record, enforced by backend validation and a database unique constraint
+- a user with company details cannot be deleted until the company details are deleted first
 
 Soft delete means the record is not removed from SQLite. It is updated with:
 
