@@ -9,6 +9,7 @@ const API_ROOT = USER_API_URL.replace(/user-details\/$/, '')
 const COMPANY_API_URL = `${API_ROOT}company-details/`
 const USER_DROPDOWN_API_URL = `${API_ROOT}user-dropdown/`
 
+const HOME_TAB = 'home'
 const USER_TAB = 'user'
 const COMPANY_TAB = 'company'
 const ACTIVE_STATUS = 'active'
@@ -63,7 +64,7 @@ function buildCompanyUrl(page, pageSize) {
 }
 
 function App() {
-  const [mainTab, setMainTab] = useState(USER_TAB)
+  const [mainTab, setMainTab] = useState(HOME_TAB)
   const [userStatus, setUserStatus] = useState(ACTIVE_STATUS)
   const [userForm, setUserForm] = useState(emptyUserForm)
   const [companyForm, setCompanyForm] = useState(emptyCompanyForm)
@@ -84,8 +85,13 @@ function App() {
   const [error, setError] = useState('')
 
   const currentUsers = users[userStatus]
-  const currentRows = mainTab === USER_TAB ? currentUsers : companies
-  const visiblePages = getVisiblePages(currentRows.page, currentRows.totalPages)
+  const paginationRows = mainTab === COMPANY_TAB ? companies : currentUsers
+  const visiblePages = getVisiblePages(
+    paginationRows.page,
+    paginationRows.totalPages,
+  )
+  const availableUsers = dropdownUsers.filter((user) => !user.has_company).length
+  const pageTitle = getPageTitle(mainTab, userStatus)
   const userButtonLabel = isUserSaving
     ? editingUserId
       ? 'Updating...'
@@ -233,6 +239,15 @@ function App() {
   function selectMainTab(tab) {
     setMainTab(tab)
     setError('')
+  }
+
+  async function refreshAll() {
+    await Promise.all([
+      loadUsers(ACTIVE_STATUS, users[ACTIVE_STATUS].page, users[ACTIVE_STATUS].pageSize),
+      loadUsers(DELETED_STATUS, users[DELETED_STATUS].page, users[DELETED_STATUS].pageSize),
+      loadCompanies(companies.page, companies.pageSize),
+      loadDropdownUsers(),
+    ])
   }
 
   function selectUserStatus(status) {
@@ -444,91 +459,137 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
-      <div className="topbar" aria-label="Application header">
-        <span className="brand">User Company Details</span>
-        <span>React</span>
-        <span>DRF API</span>
-      </div>
-
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Records</p>
-          <h1>{mainTab === USER_TAB ? 'Users' : 'Company Details'}</h1>
-        </div>
-        <div className="summary">
-          <span>{currentRows.count}</span>
-          <small>{mainTab === USER_TAB ? 'User records' : 'Company records'}</small>
-        </div>
-      </header>
-
+    <div className="erp-shell">
       <Toast message={error} onClose={() => setError('')} />
 
-      <nav className="tabs" aria-label="Main tabs">
-        <button
-          type="button"
-          className={mainTab === USER_TAB ? 'tab active' : 'tab'}
-          onClick={() => selectMainTab(USER_TAB)}
-        >
-          User
-          <span>{users[ACTIVE_STATUS].count}</span>
-        </button>
-        <button
-          type="button"
-          className={mainTab === COMPANY_TAB ? 'tab active' : 'tab'}
-          onClick={() => selectMainTab(COMPANY_TAB)}
-        >
-          Company
-          <span>{companies.count}</span>
-        </button>
-      </nav>
+      <aside className="sidebar" aria-label="Main navigation">
+        <div className="sidebar-brand">
+          <span className="brand-mark">UD</span>
+          <div>
+            <strong>UserDesk ERP</strong>
+            <small>Admin Console</small>
+          </div>
+        </div>
 
-      {mainTab === USER_TAB ? (
-        <UserPanel
-          userForm={userForm}
-          editingUserId={editingUserId}
-          isUserSaving={isUserSaving}
-          userButtonLabel={userButtonLabel}
-          userStatus={userStatus}
-          currentUsers={currentUsers}
-          deletingUserId={deletingUserId}
-          restoringUserId={restoringUserId}
-          visiblePages={visiblePages}
-          onSubmit={handleUserSubmit}
-          onChange={updateUserField}
-          onCancel={resetUserForm}
-          onSelectStatus={selectUserStatus}
-          onEdit={startUserEdit}
-          onDelete={deleteUser}
-          onRestore={restoreUser}
-          onRefresh={() =>
-            loadUsers(userStatus, currentUsers.page, currentUsers.pageSize)
-          }
-          onPageSizeChange={changePageSize}
-          onPageChange={goToPage}
-        />
-      ) : (
-        <CompanyPanel
-          companyForm={companyForm}
-          editingCompanyId={editingCompanyId}
-          isCompanySaving={isCompanySaving}
-          companyButtonLabel={companyButtonLabel}
-          dropdownUsers={dropdownUsers}
-          isDropdownLoading={isDropdownLoading}
-          companies={companies}
-          deletingCompanyId={deletingCompanyId}
-          visiblePages={visiblePages}
-          onSubmit={handleCompanySubmit}
-          onChange={updateCompanyField}
-          onCancel={resetCompanyForm}
-          onEdit={startCompanyEdit}
-          onDelete={deleteCompany}
-          onRefresh={() => loadCompanies(companies.page, companies.pageSize)}
-          onPageSizeChange={changePageSize}
-          onPageChange={goToPage}
-        />
-      )}
-    </main>
+        <nav className="sidebar-nav">
+          <button
+            type="button"
+            className={mainTab === HOME_TAB ? 'nav-item active' : 'nav-item'}
+            onClick={() => selectMainTab(HOME_TAB)}
+          >
+            <span>
+              <span className="nav-icon">D</span>
+              Dashboard
+            </span>
+          </button>
+          <button
+            type="button"
+            className={mainTab === USER_TAB ? 'nav-item active' : 'nav-item'}
+            onClick={() => selectMainTab(USER_TAB)}
+          >
+            <span>
+              <span className="nav-icon">U</span>
+              Users
+            </span>
+            <strong>{users[ACTIVE_STATUS].count}</strong>
+          </button>
+          <button
+            type="button"
+            className={mainTab === COMPANY_TAB ? 'nav-item active' : 'nav-item'}
+            onClick={() => selectMainTab(COMPANY_TAB)}
+          >
+            <span>
+              <span className="nav-icon">C</span>
+              Companies
+            </span>
+            <strong>{companies.count}</strong>
+          </button>
+        </nav>
+
+        <div className="sidebar-status">
+          <span>API</span>
+          <strong>DRF Backend</strong>
+          <small>{API_ROOT.replace(/\/$/, '')}</small>
+        </div>
+      </aside>
+
+      <section className="erp-main">
+        <header className="navbar">
+          <div>
+            <p className="eyebrow">Workspace</p>
+            <h1>{pageTitle}</h1>
+          </div>
+          <div className="navbar-actions">
+            <span className="status-pill">SQLite</span>
+            <span className="status-pill">React Vite</span>
+            <button type="button" onClick={refreshAll}>
+              Refresh
+            </button>
+          </div>
+        </header>
+
+        <main className="content-area">
+          {mainTab === HOME_TAB ? (
+            <DashboardPanel
+              users={users}
+              companies={companies}
+              availableUsers={availableUsers}
+              onOpenUsers={() => selectMainTab(USER_TAB)}
+              onOpenDeletedUsers={() => {
+                setUserStatus(DELETED_STATUS)
+                selectMainTab(USER_TAB)
+              }}
+              onOpenCompanies={() => selectMainTab(COMPANY_TAB)}
+              onRefresh={refreshAll}
+            />
+          ) : mainTab === USER_TAB ? (
+            <UserPanel
+              userForm={userForm}
+              editingUserId={editingUserId}
+              isUserSaving={isUserSaving}
+              userButtonLabel={userButtonLabel}
+              userStatus={userStatus}
+              currentUsers={currentUsers}
+              deletingUserId={deletingUserId}
+              restoringUserId={restoringUserId}
+              visiblePages={visiblePages}
+              onSubmit={handleUserSubmit}
+              onChange={updateUserField}
+              onCancel={resetUserForm}
+              onSelectStatus={selectUserStatus}
+              onEdit={startUserEdit}
+              onDelete={deleteUser}
+              onRestore={restoreUser}
+              onRefresh={() =>
+                loadUsers(userStatus, currentUsers.page, currentUsers.pageSize)
+              }
+              onPageSizeChange={changePageSize}
+              onPageChange={goToPage}
+            />
+          ) : (
+            <CompanyPanel
+              companyForm={companyForm}
+              editingCompanyId={editingCompanyId}
+              isCompanySaving={isCompanySaving}
+              companyButtonLabel={companyButtonLabel}
+              dropdownUsers={dropdownUsers}
+              isDropdownLoading={isDropdownLoading}
+              companies={companies}
+              deletingCompanyId={deletingCompanyId}
+              visiblePages={visiblePages}
+              onSubmit={handleCompanySubmit}
+              onChange={updateCompanyField}
+              onCancel={resetCompanyForm}
+              onEdit={startCompanyEdit}
+              onDelete={deleteCompany}
+              onRefresh={() => loadCompanies(companies.page, companies.pageSize)}
+              onPageSizeChange={changePageSize}
+              onPageChange={goToPage}
+            />
+          )}
+        </main>
+      </section>
+    </div>
   )
 }
 
@@ -549,6 +610,156 @@ function Toast({ message, onClose }) {
         </button>
       </div>
     </div>
+  )
+}
+
+function DashboardPanel({
+  users,
+  companies,
+  availableUsers,
+  onOpenUsers,
+  onOpenDeletedUsers,
+  onOpenCompanies,
+  onRefresh,
+}) {
+  const activeUsers = users[ACTIVE_STATUS]
+  const deletedUsers = users[DELETED_STATUS]
+  const recentUsers = activeUsers.rows.slice(0, 5)
+  const recentCompanies = companies.rows.slice(0, 5)
+
+  return (
+    <section className="dashboard" aria-label="Dashboard">
+      <div className="metric-grid">
+        <MetricCard
+          label="Active Users"
+          value={activeUsers.count}
+          loading={activeUsers.isLoading}
+          tone="blue"
+        />
+        <MetricCard
+          label="Company Records"
+          value={companies.count}
+          loading={companies.isLoading}
+          tone="green"
+        />
+        <MetricCard
+          label="Deleted Users"
+          value={deletedUsers.count}
+          loading={deletedUsers.isLoading}
+          tone="red"
+        />
+        <MetricCard
+          label="Available Users"
+          value={availableUsers}
+          loading={activeUsers.isLoading}
+          tone="gray"
+        />
+      </div>
+
+      <section className="quick-actions" aria-label="Quick actions">
+        <div>
+          <p className="eyebrow">Operations</p>
+          <h2>Control Center</h2>
+        </div>
+        <div className="actions">
+          <button type="button" className="primary" onClick={onOpenUsers}>
+            Add User
+          </button>
+          <button type="button" onClick={onOpenCompanies}>
+            Add Company
+          </button>
+          <button type="button" onClick={onOpenDeletedUsers}>
+            Deleted Users
+          </button>
+          <button type="button" onClick={onRefresh}>
+            Refresh Data
+          </button>
+        </div>
+      </section>
+
+      <div className="dashboard-grid">
+        <section className="records" aria-label="Recent users">
+          <div className="section-heading list-heading">
+            <h2>Recent Users</h2>
+            <button type="button" onClick={onOpenUsers}>
+              Open
+            </button>
+          </div>
+
+          {activeUsers.isLoading ? (
+            <UserTableSkeleton rows={DEFAULT_PAGE_SIZE} />
+          ) : recentUsers.length === 0 ? (
+            <p className="muted">No users found.</p>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Age</th>
+                    <th>Company</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentUsers.map((user) => (
+                    <tr key={user.id}>
+                      <td>{user.name}</td>
+                      <td>{user.age}</td>
+                      <td>{user.company_detail?.company_name || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="records" aria-label="Recent companies">
+          <div className="section-heading list-heading">
+            <h2>Company Assignments</h2>
+            <button type="button" onClick={onOpenCompanies}>
+              Open
+            </button>
+          </div>
+
+          {companies.isLoading ? (
+            <CompanyTableSkeleton rows={DEFAULT_PAGE_SIZE} />
+          ) : recentCompanies.length === 0 ? (
+            <p className="muted">No company details found.</p>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Company</th>
+                    <th>Role</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentCompanies.map((company) => (
+                    <tr key={company.id}>
+                      <td>{company.user_name}</td>
+                      <td>{company.company_name}</td>
+                      <td>{company.role}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+    </section>
+  )
+}
+
+function MetricCard({ label, value, loading, tone }) {
+  return (
+    <article className={`metric-card ${tone}`}>
+      <span>{label}</span>
+      {loading ? <span className="metric-skeleton"></span> : <strong>{value}</strong>}
+    </article>
   )
 }
 
@@ -1089,6 +1300,18 @@ function getVisiblePages(currentPage, totalPages) {
   }
 
   return pages
+}
+
+function getPageTitle(mainTab, userStatus) {
+  if (mainTab === HOME_TAB) {
+    return 'Dashboard'
+  }
+
+  if (mainTab === USER_TAB) {
+    return userStatus === ACTIVE_STATUS ? 'User Management' : 'Deleted Users'
+  }
+
+  return 'Company Management'
 }
 
 function getPageRangeText(listState) {
