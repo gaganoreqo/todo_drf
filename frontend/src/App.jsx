@@ -937,6 +937,8 @@ function Pagination({ listState, visiblePages, onPageSizeChange, onPageChange })
         </select>
       </label>
 
+      <span className="page-summary">{getPageRangeText(listState)}</span>
+
       <div className="page-controls">
         <button
           type="button"
@@ -1087,6 +1089,21 @@ function getVisiblePages(currentPage, totalPages) {
   }
 
   return pages
+}
+
+function getPageRangeText(listState) {
+  if (listState.isLoading) {
+    return 'Loading records'
+  }
+
+  if (listState.count === 0) {
+    return 'No records'
+  }
+
+  const start = (listState.page - 1) * listState.pageSize + 1
+  const end = Math.min(listState.count, listState.page * listState.pageSize)
+
+  return `Showing ${start}-${end} of ${listState.count}`
 }
 
 function formatApiError(data) {

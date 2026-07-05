@@ -464,6 +464,12 @@ tbody tr:hover {
   padding: 8px 10px;
 }
 
+.page-summary {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .page-controls {
   justify-content: flex-end;
 }
