@@ -133,5 +133,5 @@ CORS_ALLOWED_ORIGINS = [
 # count, next, previous, and results.
 # The custom pagination class accepts ?page= and ?page_size= from the frontend.
 REST_FRAMEWORK = {
-    'DEFAULT_PAGINATION_CLASS': 'api.pagination.UserDetailPagination',
+    'DEFAULT_PAGINATION_CLASS': 'api.pagination.DynamicPageNumberPagination',
 }
