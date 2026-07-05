@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 const USER_API_URL = (
@@ -15,6 +15,7 @@ const COMPANY_TAB = 'company'
 const ACTIVE_STATUS = 'active'
 const DELETED_STATUS = 'deleted'
 const DEFAULT_PAGE_SIZE = 5
+const FILTER_DEBOUNCE_MS = 400
 const PAGE_SIZE_OPTIONS = [5, 10, 20]
 
 const emptyUserForm = {
@@ -30,6 +31,24 @@ const emptyCompanyForm = {
   location: '',
 }
 
+const emptyUserFilters = {
+  search: '',
+  name: '',
+  age: '',
+  gender: '',
+  company: '',
+  ordering: 'id',
+}
+
+const emptyCompanyFilters = {
+  search: '',
+  userName: '',
+  companyName: '',
+  role: '',
+  location: '',
+  ordering: 'id',
+}
+
 function createListState() {
   return {
     rows: [],
@@ -41,7 +60,7 @@ function createListState() {
   }
 }
 
-function buildUserUrl(status, page, pageSize) {
+function buildUserUrl(status, page, pageSize, filters) {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -51,14 +70,28 @@ function buildUserUrl(status, page, pageSize) {
     params.set('deleted', 'true')
   }
 
+  appendParam(params, 'search', filters.search)
+  appendParam(params, 'name', filters.name)
+  appendParam(params, 'age', filters.age)
+  appendParam(params, 'gender', filters.gender)
+  appendParam(params, 'company', filters.company)
+  appendParam(params, 'ordering', filters.ordering)
+
   return `${USER_API_URL}?${params.toString()}`
 }
 
-function buildCompanyUrl(page, pageSize) {
+function buildCompanyUrl(page, pageSize, filters) {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
   })
+
+  appendParam(params, 'search', filters.search)
+  appendParam(params, 'user_name', filters.userName)
+  appendParam(params, 'company_name', filters.companyName)
+  appendParam(params, 'role', filters.role)
+  appendParam(params, 'location', filters.location)
+  appendParam(params, 'ordering', filters.ordering)
 
   return `${COMPANY_API_URL}?${params.toString()}`
 }
@@ -68,6 +101,9 @@ function App() {
   const [userStatus, setUserStatus] = useState(ACTIVE_STATUS)
   const [userForm, setUserForm] = useState(emptyUserForm)
   const [companyForm, setCompanyForm] = useState(emptyCompanyForm)
+  const [userFilters, setUserFilters] = useState(emptyUserFilters)
+  const [companyFilters, setCompanyFilters] = useState(emptyCompanyFilters)
+  const [dropdownSearch, setDropdownSearch] = useState('')
   const [editingUserId, setEditingUserId] = useState(null)
   const [editingCompanyId, setEditingCompanyId] = useState(null)
   const [users, setUsers] = useState({
@@ -83,12 +119,19 @@ function App() {
   const [restoringUserId, setRestoringUserId] = useState(null)
   const [deletingCompanyId, setDeletingCompanyId] = useState(null)
   const [error, setError] = useState('')
+  const userFilterTimerRef = useRef(null)
+  const companyFilterTimerRef = useRef(null)
 
   const currentUsers = users[userStatus]
   const paginationRows = mainTab === COMPANY_TAB ? companies : currentUsers
   const visiblePages = getVisiblePages(
     paginationRows.page,
     paginationRows.totalPages,
+  )
+  const filteredDropdownUsers = filterDropdownUsers(
+    dropdownUsers,
+    dropdownSearch,
+    companyForm.userDetailId,
   )
   const availableUsers = dropdownUsers.filter((user) => !user.has_company).length
   const pageTitle = getPageTitle(mainTab, userStatus)
@@ -115,6 +158,13 @@ function App() {
   }, [])
 
   useEffect(() => {
+    return () => {
+      window.clearTimeout(userFilterTimerRef.current)
+      window.clearTimeout(companyFilterTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!error) {
       return undefined
     }
@@ -126,10 +176,15 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [error])
 
-  async function loadUsers(status, page, pageSize) {
+  async function loadUsers(status, page, pageSize, filters = userFilters) {
     const requestedPage = Math.max(1, Number(page) || 1)
     const requestedPageSize = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE)
-    const url = buildUserUrl(status, requestedPage, requestedPageSize)
+    const url = buildUserUrl(
+      status,
+      requestedPage,
+      requestedPageSize,
+      filters,
+    )
 
     setUsers((current) => ({
       ...current,
@@ -144,7 +199,7 @@ function App() {
       const response = await fetch(url)
 
       if (response.status === 404 && requestedPage > 1) {
-        await loadUsers(status, requestedPage - 1, requestedPageSize)
+        await loadUsers(status, requestedPage - 1, requestedPageSize, filters)
         return
       }
 
@@ -176,10 +231,10 @@ function App() {
     }
   }
 
-  async function loadCompanies(page, pageSize) {
+  async function loadCompanies(page, pageSize, filters = companyFilters) {
     const requestedPage = Math.max(1, Number(page) || 1)
     const requestedPageSize = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE)
-    const url = buildCompanyUrl(requestedPage, requestedPageSize)
+    const url = buildCompanyUrl(requestedPage, requestedPageSize, filters)
 
     setCompanies((current) => ({
       ...current,
@@ -191,7 +246,7 @@ function App() {
       const response = await fetch(url)
 
       if (response.status === 404 && requestedPage > 1) {
-        await loadCompanies(requestedPage - 1, requestedPageSize)
+        await loadCompanies(requestedPage - 1, requestedPageSize, filters)
         return
       }
 
@@ -243,16 +298,28 @@ function App() {
 
   async function refreshAll() {
     await Promise.all([
-      loadUsers(ACTIVE_STATUS, users[ACTIVE_STATUS].page, users[ACTIVE_STATUS].pageSize),
-      loadUsers(DELETED_STATUS, users[DELETED_STATUS].page, users[DELETED_STATUS].pageSize),
-      loadCompanies(companies.page, companies.pageSize),
+      loadUsers(
+        ACTIVE_STATUS,
+        users[ACTIVE_STATUS].page,
+        users[ACTIVE_STATUS].pageSize,
+        userFilters,
+      ),
+      loadUsers(
+        DELETED_STATUS,
+        users[DELETED_STATUS].page,
+        users[DELETED_STATUS].pageSize,
+        userFilters,
+      ),
+      loadCompanies(companies.page, companies.pageSize, companyFilters),
       loadDropdownUsers(),
     ])
   }
 
   function selectUserStatus(status) {
+    window.clearTimeout(userFilterTimerRef.current)
     setUserStatus(status)
     resetUserForm()
+    loadUsers(status, 1, users[status].pageSize, userFilters)
   }
 
   function updateUserField(event) {
@@ -269,6 +336,46 @@ function App() {
       ...current,
       [name]: value,
     }))
+  }
+
+  function updateUserFilter(event) {
+    const { name, value } = event.target
+    const nextFilters = {
+      ...userFilters,
+      [name]: value,
+    }
+
+    setUserFilters(nextFilters)
+    window.clearTimeout(userFilterTimerRef.current)
+    userFilterTimerRef.current = window.setTimeout(() => {
+      loadUsers(userStatus, 1, currentUsers.pageSize, nextFilters)
+    }, FILTER_DEBOUNCE_MS)
+  }
+
+  function resetUserFilters() {
+    window.clearTimeout(userFilterTimerRef.current)
+    setUserFilters(emptyUserFilters)
+    loadUsers(userStatus, 1, currentUsers.pageSize, emptyUserFilters)
+  }
+
+  function updateCompanyFilter(event) {
+    const { name, value } = event.target
+    const nextFilters = {
+      ...companyFilters,
+      [name]: value,
+    }
+
+    setCompanyFilters(nextFilters)
+    window.clearTimeout(companyFilterTimerRef.current)
+    companyFilterTimerRef.current = window.setTimeout(() => {
+      loadCompanies(1, companies.pageSize, nextFilters)
+    }, FILTER_DEBOUNCE_MS)
+  }
+
+  function resetCompanyFilters() {
+    window.clearTimeout(companyFilterTimerRef.current)
+    setCompanyFilters(emptyCompanyFilters)
+    loadCompanies(1, companies.pageSize, emptyCompanyFilters)
   }
 
   function startUserEdit(user) {
@@ -325,7 +432,12 @@ function App() {
       }
 
       resetUserForm()
-      await loadUsers(ACTIVE_STATUS, users[ACTIVE_STATUS].page, users[ACTIVE_STATUS].pageSize)
+      await loadUsers(
+        ACTIVE_STATUS,
+        users[ACTIVE_STATUS].page,
+        users[ACTIVE_STATUS].pageSize,
+        userFilters,
+      )
       await loadDropdownUsers()
     } catch (err) {
       setError(err.message)
@@ -358,8 +470,13 @@ function App() {
       }
 
       resetCompanyForm()
-      await loadCompanies(companies.page, companies.pageSize)
-      await loadUsers(ACTIVE_STATUS, users[ACTIVE_STATUS].page, users[ACTIVE_STATUS].pageSize)
+      await loadCompanies(companies.page, companies.pageSize, companyFilters)
+      await loadUsers(
+        ACTIVE_STATUS,
+        users[ACTIVE_STATUS].page,
+        users[ACTIVE_STATUS].pageSize,
+        userFilters,
+      )
       await loadDropdownUsers()
     } catch (err) {
       setError(err.message)
@@ -381,8 +498,13 @@ function App() {
         throw new Error(formatApiError(await response.json()))
       }
 
-      await loadUsers(ACTIVE_STATUS, users[ACTIVE_STATUS].page, users[ACTIVE_STATUS].pageSize)
-      await loadUsers(DELETED_STATUS, 1, users[DELETED_STATUS].pageSize)
+      await loadUsers(
+        ACTIVE_STATUS,
+        users[ACTIVE_STATUS].page,
+        users[ACTIVE_STATUS].pageSize,
+        userFilters,
+      )
+      await loadUsers(DELETED_STATUS, 1, users[DELETED_STATUS].pageSize, userFilters)
       await loadDropdownUsers()
     } catch (err) {
       setError(err.message)
@@ -404,8 +526,13 @@ function App() {
         throw new Error('Could not restore user.')
       }
 
-      await loadUsers(DELETED_STATUS, users[DELETED_STATUS].page, users[DELETED_STATUS].pageSize)
-      await loadUsers(ACTIVE_STATUS, 1, users[ACTIVE_STATUS].pageSize)
+      await loadUsers(
+        DELETED_STATUS,
+        users[DELETED_STATUS].page,
+        users[DELETED_STATUS].pageSize,
+        userFilters,
+      )
+      await loadUsers(ACTIVE_STATUS, 1, users[ACTIVE_STATUS].pageSize, userFilters)
       await loadDropdownUsers()
     } catch (err) {
       setError(err.message)
@@ -428,8 +555,13 @@ function App() {
       }
 
       resetCompanyForm()
-      await loadCompanies(companies.page, companies.pageSize)
-      await loadUsers(ACTIVE_STATUS, users[ACTIVE_STATUS].page, users[ACTIVE_STATUS].pageSize)
+      await loadCompanies(companies.page, companies.pageSize, companyFilters)
+      await loadUsers(
+        ACTIVE_STATUS,
+        users[ACTIVE_STATUS].page,
+        users[ACTIVE_STATUS].pageSize,
+        userFilters,
+      )
       await loadDropdownUsers()
     } catch (err) {
       setError(err.message)
@@ -442,20 +574,24 @@ function App() {
     const pageSize = Number(event.target.value)
 
     if (mainTab === USER_TAB) {
-      loadUsers(userStatus, 1, pageSize)
+      window.clearTimeout(userFilterTimerRef.current)
+      loadUsers(userStatus, 1, pageSize, userFilters)
       return
     }
 
-    loadCompanies(1, pageSize)
+    window.clearTimeout(companyFilterTimerRef.current)
+    loadCompanies(1, pageSize, companyFilters)
   }
 
   function goToPage(page) {
     if (mainTab === USER_TAB) {
-      loadUsers(userStatus, page, currentUsers.pageSize)
+      window.clearTimeout(userFilterTimerRef.current)
+      loadUsers(userStatus, page, currentUsers.pageSize, userFilters)
       return
     }
 
-    loadCompanies(page, companies.pageSize)
+    window.clearTimeout(companyFilterTimerRef.current)
+    loadCompanies(page, companies.pageSize, companyFilters)
   }
 
   return (
@@ -549,19 +685,27 @@ function App() {
               isUserSaving={isUserSaving}
               userButtonLabel={userButtonLabel}
               userStatus={userStatus}
+              userFilters={userFilters}
               currentUsers={currentUsers}
               deletingUserId={deletingUserId}
               restoringUserId={restoringUserId}
               visiblePages={visiblePages}
               onSubmit={handleUserSubmit}
               onChange={updateUserField}
+              onFilterChange={updateUserFilter}
+              onResetFilters={resetUserFilters}
               onCancel={resetUserForm}
               onSelectStatus={selectUserStatus}
               onEdit={startUserEdit}
               onDelete={deleteUser}
               onRestore={restoreUser}
               onRefresh={() =>
-                loadUsers(userStatus, currentUsers.page, currentUsers.pageSize)
+                loadUsers(
+                  userStatus,
+                  currentUsers.page,
+                  currentUsers.pageSize,
+                  userFilters,
+                )
               }
               onPageSizeChange={changePageSize}
               onPageChange={goToPage}
@@ -572,17 +716,24 @@ function App() {
               editingCompanyId={editingCompanyId}
               isCompanySaving={isCompanySaving}
               companyButtonLabel={companyButtonLabel}
-              dropdownUsers={dropdownUsers}
+              dropdownUsers={filteredDropdownUsers}
+              dropdownSearch={dropdownSearch}
               isDropdownLoading={isDropdownLoading}
+              companyFilters={companyFilters}
               companies={companies}
               deletingCompanyId={deletingCompanyId}
               visiblePages={visiblePages}
               onSubmit={handleCompanySubmit}
               onChange={updateCompanyField}
+              onDropdownSearchChange={(event) => setDropdownSearch(event.target.value)}
+              onFilterChange={updateCompanyFilter}
+              onResetFilters={resetCompanyFilters}
               onCancel={resetCompanyForm}
               onEdit={startCompanyEdit}
               onDelete={deleteCompany}
-              onRefresh={() => loadCompanies(companies.page, companies.pageSize)}
+              onRefresh={() =>
+                loadCompanies(companies.page, companies.pageSize, companyFilters)
+              }
               onPageSizeChange={changePageSize}
               onPageChange={goToPage}
             />
@@ -687,7 +838,10 @@ function DashboardPanel({
           </div>
 
           {activeUsers.isLoading ? (
-            <UserTableSkeleton rows={DEFAULT_PAGE_SIZE} />
+            <SkeletonTable
+              headers={['Name', 'Age', 'Company']}
+              rows={Array.from({ length: DEFAULT_PAGE_SIZE })}
+            />
           ) : recentUsers.length === 0 ? (
             <p className="muted">No users found.</p>
           ) : (
@@ -723,7 +877,10 @@ function DashboardPanel({
           </div>
 
           {companies.isLoading ? (
-            <CompanyTableSkeleton rows={DEFAULT_PAGE_SIZE} />
+            <SkeletonTable
+              headers={['User', 'Company', 'Role']}
+              rows={Array.from({ length: DEFAULT_PAGE_SIZE })}
+            />
           ) : recentCompanies.length === 0 ? (
             <p className="muted">No company details found.</p>
           ) : (
@@ -769,12 +926,15 @@ function UserPanel({
   isUserSaving,
   userButtonLabel,
   userStatus,
+  userFilters,
   currentUsers,
   deletingUserId,
   restoringUserId,
   visiblePages,
   onSubmit,
   onChange,
+  onFilterChange,
+  onResetFilters,
   onCancel,
   onSelectStatus,
   onEdit,
@@ -865,6 +1025,12 @@ function UserPanel({
             Deleted
           </button>
         </div>
+
+        <UserListFilters
+          filters={userFilters}
+          onChange={onFilterChange}
+          onReset={onResetFilters}
+        />
 
         {currentUsers.isLoading ? (
           <UserTableSkeleton rows={currentUsers.pageSize} />
@@ -961,12 +1127,17 @@ function CompanyPanel({
   isCompanySaving,
   companyButtonLabel,
   dropdownUsers,
+  dropdownSearch,
   isDropdownLoading,
+  companyFilters,
   companies,
   deletingCompanyId,
   visiblePages,
   onSubmit,
   onChange,
+  onDropdownSearchChange,
+  onFilterChange,
+  onResetFilters,
   onCancel,
   onEdit,
   onDelete,
@@ -974,6 +1145,27 @@ function CompanyPanel({
   onPageSizeChange,
   onPageChange,
 }) {
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
+  const isUserDropdownDisabled =
+    isDropdownLoading || isCompanySaving || Boolean(editingCompanyId)
+  const selectedUser = dropdownUsers.find(
+    (user) => String(user.id) === companyForm.userDetailId,
+  )
+
+  function selectDropdownUser(user) {
+    if (user.has_company && String(user.id) !== companyForm.userDetailId) {
+      return
+    }
+
+    onChange({
+      target: {
+        name: 'userDetailId',
+        value: String(user.id),
+      },
+    })
+    setIsUserDropdownOpen(false)
+  }
+
   return (
     <section className="workspace" aria-label="Company workspace">
       <form className="editor" onSubmit={onSubmit}>
@@ -981,31 +1173,65 @@ function CompanyPanel({
           <h2>{editingCompanyId ? 'Edit Company' : 'Add Company'}</h2>
         </div>
 
-        <label>
-          User
-          <select
-            name="userDetailId"
-            value={companyForm.userDetailId}
-            onChange={onChange}
-            disabled={isDropdownLoading || isCompanySaving || Boolean(editingCompanyId)}
-          >
-            <option value="">
-              {isDropdownLoading ? 'Loading users...' : 'Select user'}
-            </option>
-            {dropdownUsers.map((user) => (
-              <option
-                key={user.id}
-                value={user.id}
-                disabled={
-                  user.has_company && String(user.id) !== companyForm.userDetailId
-                }
-              >
-                {user.name}
-                {user.has_company ? ' - has company' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="field-group">
+          <span className="field-label">User</span>
+          <div className="searchable-select">
+            <button
+              type="button"
+              className="searchable-select-trigger"
+              disabled={isUserDropdownDisabled}
+              aria-expanded={isUserDropdownOpen}
+              onClick={() => setIsUserDropdownOpen((current) => !current)}
+            >
+              <span>
+                {isDropdownLoading
+                  ? 'Loading users...'
+                  : selectedUser?.name || 'Select user'}
+              </span>
+              <span className="select-caret">v</span>
+            </button>
+
+            {isUserDropdownOpen ? (
+              <div className="searchable-select-menu">
+                <input
+                  type="search"
+                  value={dropdownSearch}
+                  onChange={onDropdownSearchChange}
+                  placeholder="Search user"
+                  autoFocus
+                />
+
+                <div className="searchable-select-options">
+                  {dropdownUsers.length === 0 ? (
+                    <span className="dropdown-empty">No users found.</span>
+                  ) : (
+                    dropdownUsers.map((user) => {
+                      const isSelected = String(user.id) === companyForm.userDetailId
+                      const isDisabled = user.has_company && !isSelected
+
+                      return (
+                        <button
+                          key={user.id}
+                          type="button"
+                          className={
+                            isSelected
+                              ? 'searchable-option selected'
+                              : 'searchable-option'
+                          }
+                          disabled={isDisabled}
+                          onClick={() => selectDropdownUser(user)}
+                        >
+                          <span>{user.name}</span>
+                          {user.has_company ? <small>Has company</small> : null}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
 
         <label>
           Company Name
@@ -1064,6 +1290,12 @@ function CompanyPanel({
             Refresh
           </button>
         </div>
+
+        <CompanyListFilters
+          filters={companyFilters}
+          onChange={onFilterChange}
+          onReset={onResetFilters}
+        />
 
         {companies.isLoading ? (
           <CompanyTableSkeleton rows={companies.pageSize} />
@@ -1127,6 +1359,180 @@ function CompanyPanel({
         />
       </section>
     </section>
+  )
+}
+
+function UserListFilters({ filters, onChange, onReset }) {
+  return (
+    <div className="filter-panel" aria-label="User filters">
+      <label>
+        Global Search
+        <input
+          name="search"
+          type="search"
+          value={filters.search}
+          onChange={onChange}
+          placeholder="Name, gender, company, role"
+        />
+      </label>
+
+      <label>
+        Name
+        <input
+          name="name"
+          type="search"
+          value={filters.name}
+          onChange={onChange}
+          placeholder="Filter name"
+        />
+      </label>
+
+      <label>
+        Age
+        <input
+          name="age"
+          type="number"
+          value={filters.age}
+          onChange={onChange}
+          placeholder="Exact age"
+        />
+      </label>
+
+      <label>
+        Gender
+        <select
+          name="gender"
+          value={filters.gender}
+          onChange={onChange}
+        >
+          <option value="">All genders</option>
+          <option value="Female">Female</option>
+          <option value="Male">Male</option>
+          <option value="Non-binary">Non-binary</option>
+          <option value="Prefer not to say">Prefer not to say</option>
+        </select>
+      </label>
+
+      <label>
+        Company
+        <input
+          name="company"
+          type="search"
+          value={filters.company}
+          onChange={onChange}
+          placeholder="Filter company"
+        />
+      </label>
+
+      <label>
+        Ordering
+        <select
+          name="ordering"
+          value={filters.ordering}
+          onChange={onChange}
+        >
+          <option value="id">Oldest first</option>
+          <option value="-id">Newest first</option>
+          <option value="name">Name A-Z</option>
+          <option value="-name">Name Z-A</option>
+          <option value="age">Age low-high</option>
+          <option value="-age">Age high-low</option>
+          <option value="gender">Gender A-Z</option>
+          <option value="-gender">Gender Z-A</option>
+          <option value="company_details__company_name">Company A-Z</option>
+          <option value="-company_details__company_name">Company Z-A</option>
+        </select>
+      </label>
+
+      <button type="button" onClick={onReset}>
+        Clear Filters
+      </button>
+    </div>
+  )
+}
+
+function CompanyListFilters({ filters, onChange, onReset }) {
+  return (
+    <div className="filter-panel" aria-label="Company filters">
+      <label>
+        Global Search
+        <input
+          name="search"
+          type="search"
+          value={filters.search}
+          onChange={onChange}
+          placeholder="User, company, role, location"
+        />
+      </label>
+
+      <label>
+        User Name
+        <input
+          name="userName"
+          type="search"
+          value={filters.userName}
+          onChange={onChange}
+          placeholder="Filter user"
+        />
+      </label>
+
+      <label>
+        Company
+        <input
+          name="companyName"
+          type="search"
+          value={filters.companyName}
+          onChange={onChange}
+          placeholder="Filter company"
+        />
+      </label>
+
+      <label>
+        Role
+        <input
+          name="role"
+          type="search"
+          value={filters.role}
+          onChange={onChange}
+          placeholder="Filter role"
+        />
+      </label>
+
+      <label>
+        Location
+        <input
+          name="location"
+          type="search"
+          value={filters.location}
+          onChange={onChange}
+          placeholder="Filter location"
+        />
+      </label>
+
+      <label>
+        Ordering
+        <select
+          name="ordering"
+          value={filters.ordering}
+          onChange={onChange}
+        >
+          <option value="id">Oldest first</option>
+          <option value="-id">Newest first</option>
+          <option value="user_detail__name">User A-Z</option>
+          <option value="-user_detail__name">User Z-A</option>
+          <option value="company_name">Company A-Z</option>
+          <option value="-company_name">Company Z-A</option>
+          <option value="role">Role A-Z</option>
+          <option value="-role">Role Z-A</option>
+          <option value="location">Location A-Z</option>
+          <option value="-location">Location Z-A</option>
+        </select>
+      </label>
+
+      <button type="button" onClick={onReset}>
+        Clear Filters
+      </button>
+    </div>
   )
 }
 
@@ -1300,6 +1706,29 @@ function getVisiblePages(currentPage, totalPages) {
   }
 
   return pages
+}
+
+function appendParam(params, key, value) {
+  const trimmedValue = String(value || '').trim()
+
+  if (trimmedValue) {
+    params.set(key, trimmedValue)
+  }
+}
+
+function filterDropdownUsers(users, search, selectedUserId) {
+  const keyword = search.trim().toLowerCase()
+
+  if (!keyword) {
+    return users
+  }
+
+  return users.filter((user) => {
+    const isSelected = String(user.id) === selectedUserId
+    const matchesName = user.name.toLowerCase().includes(keyword)
+
+    return isSelected || matchesName
+  })
 }
 
 function getPageTitle(mainTab, userStatus) {

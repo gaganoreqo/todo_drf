@@ -342,6 +342,17 @@ label {
   font-weight: 800;
 }
 
+.field-group {
+  display: grid;
+  gap: 7px;
+}
+
+.field-label {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 input,
 select {
   width: 100%;
@@ -361,6 +372,76 @@ input:focus,
 select:focus {
   border-color: #2563eb;
   outline: 3px solid rgba(37, 99, 235, 0.18);
+}
+
+.searchable-select {
+  position: relative;
+}
+
+.searchable-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+}
+
+.select-caret {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.searchable-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #cfd7e3;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.16);
+}
+
+.searchable-select-options {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.searchable-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 38px;
+  border-color: transparent;
+  padding: 8px 10px;
+  background: transparent;
+  text-align: left;
+}
+
+.searchable-option:hover:not(:disabled),
+.searchable-option.selected {
+  border-color: #d9dee7;
+  background: #f1f5f9;
+  transform: none;
+}
+
+.searchable-option small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.dropdown-empty {
+  padding: 12px 10px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 button {
@@ -453,6 +534,22 @@ button:disabled {
   color: #111827;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.filter-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.filter-panel button {
+  white-space: nowrap;
 }
 
 .table-wrap {
@@ -668,6 +765,10 @@ tbody tr:hover {
   .workspace {
     grid-template-columns: 1fr;
   }
+
+  .filter-panel {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -716,6 +817,10 @@ tbody tr:hover {
   }
 
   .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-panel {
     grid-template-columns: 1fr;
   }
 

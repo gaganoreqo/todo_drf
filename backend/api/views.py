@@ -1,6 +1,7 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
 from .models import CompanyDetail, UserDetail
@@ -17,16 +18,54 @@ from .serializers import (
 class UserDetailViewSet(viewsets.ModelViewSet):
     serializer_class = UserDetailSerializer
     pagination_class = DynamicPageNumberPagination
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = [
+        'name',
+        'gender',
+        'company_details__company_name',
+        'company_details__role',
+        'company_details__location',
+    ]
+    ordering_fields = [
+        'id',
+        'name',
+        'age',
+        'gender',
+        'company_details__company_name',
+    ]
+    ordering = ['id']
 
     def get_queryset(self):
         # By default, show only active records.
         # Use /api/v1/user-details/?deleted=true to list soft-deleted records.
         show_deleted = self.request.query_params.get('deleted') == 'true'
-        return (
-            UserDetail.objects.prefetch_related('company_details')
-            .filter(is_deleted=show_deleted)
-            .order_by('id')
-        )
+        queryset = UserDetail.objects.prefetch_related(
+            'company_details'
+        ).filter(is_deleted=show_deleted)
+        params = self.request.query_params
+
+        # Field-wise filters. These work together with global ?search=.
+        name = params.get('name', '').strip()
+        age = params.get('age', '').strip()
+        gender = params.get('gender', '').strip()
+        company = params.get('company', '').strip()
+
+        if name:
+            queryset = queryset.filter(name__icontains=name)
+
+        if age and age.isdigit():
+            queryset = queryset.filter(age=age)
+        elif age:
+            queryset = queryset.none()
+
+        if gender:
+            queryset = queryset.filter(gender__iexact=gender)
+
+        if company:
+            queryset = queryset.filter(company_details__company_name__icontains=company)
+
+        return queryset.distinct()
+        
 
     def perform_destroy(self, instance):
         # Soft delete: keep the record in the database and mark it as deleted.
@@ -63,9 +102,53 @@ class UserDetailViewSet(viewsets.ModelViewSet):
 # A separate endpoint for company detail records. User responses still include
 # company detail as a nested serializer.
 class CompanyDetailViewSet(viewsets.ModelViewSet):
-    queryset = CompanyDetail.objects.select_related('user_detail').order_by('id')
     serializer_class = CompanyDetailSerializer
     pagination_class = DynamicPageNumberPagination
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = [
+        'user_detail__name',
+        'company_name',
+        'role',
+        'location',
+    ]
+    ordering_fields = [
+        'id',
+        'user_detail__name',
+        'company_name',
+        'role',
+        'location',
+    ]
+    ordering = ['id']
+
+    def get_queryset(self):
+        queryset = CompanyDetail.objects.select_related('user_detail')
+        params = self.request.query_params
+
+        # Field-wise filters for company list API.
+        user_detail = params.get('user_detail', '').strip()
+        user_name = params.get('user_name', '').strip()
+        company_name = params.get('company_name', '').strip()
+        role = params.get('role', '').strip()
+        location = params.get('location', '').strip()
+
+        if user_detail and user_detail.isdigit():
+            queryset = queryset.filter(user_detail_id=user_detail)
+        elif user_detail:
+            queryset = queryset.none()
+
+        if user_name:
+            queryset = queryset.filter(user_detail__name__icontains=user_name)
+
+        if company_name:
+            queryset = queryset.filter(company_name__icontains=company_name)
+
+        if role:
+            queryset = queryset.filter(role__icontains=role)
+
+        if location:
+            queryset = queryset.filter(location__icontains=location)
+
+        return queryset
 
 
 # Lightweight API for company form dropdown options.
