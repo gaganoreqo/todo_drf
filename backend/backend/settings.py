@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     # Third-party apps
     'corsheaders',
     'rest_framework',
+    'drf_spectacular',
     # Local apps
     'api',
 ]
@@ -134,4 +135,11 @@ CORS_ALLOWED_ORIGINS = [
 # The custom pagination class accepts ?page= and ?page_size= from the frontend.
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'api.pagination.DynamicPageNumberPagination',
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'User Company Details API',
+    'DESCRIPTION': 'DRF backend for managing user details and company details.',
+    'VERSION': '1.0.0',
 }

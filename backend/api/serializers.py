@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 
 from .models import CompanyDetail, UserDetail
@@ -97,6 +98,21 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate(self, attrs):
+        if (
+            self.instance
+            and 'user_detail' in attrs
+            and attrs['user_detail'].id != self.instance.user_detail_id
+        ):
+            raise serializers.ValidationError({
+                'user_detail': (
+                    'Company details cannot be moved to another user. '
+                    'Delete and recreate the company details instead.'
+                )
+            })
+
+        return attrs
+
 
 # A ModelSerializer converts UserDetail model instances to JSON and validates
 # incoming JSON before saving it to the database.
@@ -159,6 +175,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
         return gender
 
+    @extend_schema_field(CompanyDetailSerializer(allow_null=True))
     def get_company_detail(self, obj):
         company_detail = obj.company_details.first()
 
@@ -176,5 +193,6 @@ class UserDropdownSerializer(serializers.ModelSerializer):
         model = UserDetail
         fields = ['id', 'name', 'has_company']
 
+    @extend_schema_field(OpenApiTypes.BOOL)
     def get_has_company(self, obj):
         return obj.company_details.exists()
