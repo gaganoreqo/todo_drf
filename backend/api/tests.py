@@ -1,7 +1,10 @@
+from unittest.mock import patch
+
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from .models import CompanyDetail, UserDetail
+from .serializers import UserDetailSerializer
 
 
 # APITestCase gives us a test client for calling DRF APIs.
@@ -10,6 +13,7 @@ class UserDetailApiTests(APITestCase):
     user_url = '/api/v1/user-details/'
     company_url = '/api/v1/company-details/'
     dropdown_url = '/api/v1/user-dropdown/'
+    dashboard_url = '/api/v1/dashboard-summary/'
 
     def create_user(self, name='Rahul', age=25, gender='Male'):
         return UserDetail.objects.create(name=name, age=age, gender=gender)
@@ -67,6 +71,26 @@ class UserDetailApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('name', response.data)
 
+    def test_user_managers_return_active_and_deleted_records(self):
+        active_user = self.create_user(name='Active User')
+        deleted_user = self.create_user(name='Deleted User')
+        deleted_user.is_deleted = True
+        deleted_user.save(update_fields=['is_deleted'])
+
+        active_names = list(
+            UserDetail.active_objects.order_by('name').values_list('name', flat=True)
+        )
+        deleted_names = list(
+            UserDetail.deleted_objects.order_by('name').values_list('name', flat=True)
+        )
+        all_names = list(
+            UserDetail.objects.order_by('name').values_list('name', flat=True)
+        )
+
+        self.assertEqual(active_names, [active_user.name])
+        self.assertEqual(deleted_names, [deleted_user.name])
+        self.assertEqual(all_names, [active_user.name, deleted_user.name])
+
     def test_update_user_with_put(self):
         user = self.create_user(name='Rahul')
 
@@ -98,6 +122,131 @@ class UserDetailApiTests(APITestCase):
         user.refresh_from_db()
         self.assertEqual(user.age, 28)
         self.assertEqual(user.name, 'Rahul')
+
+    def test_create_user_with_nested_company_detail(self):
+        response = self.client.post(
+            self.user_url,
+            {
+                'name': 'Anita',
+                'age': 30,
+                'gender': 'Female',
+                'company_detail': {
+                    'company_name': 'Infosys',
+                    'role': 'Engineer',
+                    'location': 'Bengaluru',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(UserDetail.objects.count(), 1)
+        self.assertEqual(CompanyDetail.objects.count(), 1)
+        company = CompanyDetail.objects.get()
+        self.assertEqual(company.user_detail.name, 'Anita')
+        self.assertEqual(company.company_name, 'Infosys')
+        self.assertEqual(response.data['company_detail']['company_name'], 'Infosys')
+
+    def test_nested_create_rolls_back_user_when_company_create_fails(self):
+        serializer = UserDetailSerializer(
+            data={
+                'name': 'Anita',
+                'age': 30,
+                'gender': 'Female',
+                'company_detail': {
+                    'company_name': 'Infosys',
+                    'role': 'Engineer',
+                    'location': 'Bengaluru',
+                },
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        with patch(
+            'api.serializers.CompanyDetail.objects.create',
+            side_effect=RuntimeError('Company create failed.'),
+        ):
+            with self.assertRaises(RuntimeError):
+                serializer.save()
+
+        self.assertEqual(UserDetail.objects.count(), 0)
+        self.assertEqual(CompanyDetail.objects.count(), 0)
+
+    def test_partial_update_user_creates_nested_company_detail(self):
+        user = self.create_user(name='Anita')
+
+        response = self.client.patch(
+            f'{self.user_url}{user.id}/',
+            {
+                'company_detail': {
+                    'company_name': 'Infosys',
+                    'role': 'Engineer',
+                    'location': 'Bengaluru',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        company = CompanyDetail.objects.get(user_detail=user)
+        self.assertEqual(company.company_name, 'Infosys')
+        self.assertEqual(response.data['company_detail']['role'], 'Engineer')
+
+    def test_partial_update_user_updates_nested_company_detail(self):
+        user = self.create_user(name='Anita')
+        company = self.create_company(
+            user,
+            company_name='Infosys',
+            role='Engineer',
+            location='Bengaluru',
+        )
+
+        response = self.client.patch(
+            f'{self.user_url}{user.id}/',
+            {
+                'company_detail': {
+                    'company_name': 'Infosys',
+                    'role': 'Tech Lead',
+                    'location': 'Pune',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        company.refresh_from_db()
+        self.assertEqual(company.role, 'Tech Lead')
+        self.assertEqual(company.location, 'Pune')
+        self.assertEqual(company.user_detail_id, user.id)
+
+    def test_nested_update_rolls_back_user_when_company_create_fails(self):
+        user = self.create_user(name='Anita', age=30, gender='Female')
+        serializer = UserDetailSerializer(
+            user,
+            data={
+                'name': 'Anita Updated',
+                'company_detail': {
+                    'company_name': 'Infosys',
+                    'role': 'Engineer',
+                    'location': 'Bengaluru',
+                },
+            },
+            partial=True,
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        with patch(
+            'api.serializers.CompanyDetail.objects.create',
+            side_effect=RuntimeError('Company create failed.'),
+        ):
+            with self.assertRaises(RuntimeError):
+                serializer.save()
+
+        user.refresh_from_db()
+        self.assertEqual(user.name, 'Anita')
+        self.assertFalse(user.company_details.exists())
 
     def test_delete_user_is_soft_delete(self):
         user = self.create_user()
@@ -214,6 +363,28 @@ class UserDetailApiTests(APITestCase):
         self.assertEqual(company.role, 'Lead Engineer')
         self.assertEqual(company.user_detail_id, user.id)
 
+    def test_company_full_update_keeps_original_user(self):
+        user = self.create_user(name='Anita')
+        company = self.create_company(user)
+
+        response = self.client.put(
+            f'{self.company_url}{company.id}/',
+            {
+                'user_detail': user.id,
+                'company_name': 'Infosys',
+                'role': 'Tech Lead',
+                'location': 'Bengaluru',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        company.refresh_from_db()
+        self.assertEqual(company.company_name, 'Infosys')
+        self.assertEqual(company.role, 'Tech Lead')
+        self.assertEqual(company.location, 'Bengaluru')
+        self.assertEqual(company.user_detail_id, user.id)
+
     def test_company_list_includes_joined_user_name(self):
         user = self.create_user(name='Anita')
         self.create_company(user, company_name='Infosys')
@@ -245,6 +416,22 @@ class UserDetailApiTests(APITestCase):
         }
         self.assertTrue(company_status[user_with_company.name])
         self.assertFalse(company_status[user_without_company.name])
+
+    def test_dashboard_summary_returns_counts(self):
+        user_with_company = self.create_user(name='Anita')
+        self.create_user(name='Rahul')
+        deleted_user = self.create_user(name='Deleted')
+        deleted_user.is_deleted = True
+        deleted_user.save(update_fields=['is_deleted'])
+        self.create_company(user_with_company)
+
+        response = self.client.get(self.dashboard_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['active_users'], 2)
+        self.assertEqual(response.data['company_records'], 1)
+        self.assertEqual(response.data['deleted_users'], 1)
+        self.assertEqual(response.data['available_users'], 1)
 
     def test_user_pagination(self):
         for index in range(7):

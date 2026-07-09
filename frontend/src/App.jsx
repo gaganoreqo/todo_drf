@@ -8,6 +8,7 @@ const USER_API_URL = (
 const API_ROOT = USER_API_URL.replace(/user-details\/$/, '')
 const COMPANY_API_URL = `${API_ROOT}company-details/`
 const USER_DROPDOWN_API_URL = `${API_ROOT}user-dropdown/`
+const DASHBOARD_SUMMARY_API_URL = `${API_ROOT}dashboard-summary/`
 
 const HOME_TAB = 'home'
 const USER_TAB = 'user'
@@ -18,6 +19,13 @@ const DEFAULT_PAGE_SIZE = 5
 const FILTER_DEBOUNCE_MS = 400
 const PAGE_SIZE_OPTIONS = [5, 10, 20]
 
+const emptyDashboardSummary = {
+  activeUsers: 0,
+  companyRecords: 0,
+  deletedUsers: 0,
+  availableUsers: 0,
+}
+
 const emptyUserForm = {
   name: '',
   age: '',
@@ -26,6 +34,7 @@ const emptyUserForm = {
 
 const emptyCompanyForm = {
   userDetailId: '',
+  userName: '',
   companyName: '',
   role: '',
   location: '',
@@ -56,7 +65,16 @@ function createListState() {
     page: 1,
     pageSize: DEFAULT_PAGE_SIZE,
     totalPages: 1,
-    isLoading: true,
+    isLoading: false,
+    hasLoaded: false,
+  }
+}
+
+function createDashboardState() {
+  return {
+    data: emptyDashboardSummary,
+    isLoading: false,
+    hasLoaded: false,
   }
 }
 
@@ -111,8 +129,10 @@ function App() {
     [DELETED_STATUS]: createListState(),
   })
   const [companies, setCompanies] = useState(createListState())
+  const [dashboardSummary, setDashboardSummary] = useState(createDashboardState())
   const [dropdownUsers, setDropdownUsers] = useState([])
-  const [isDropdownLoading, setIsDropdownLoading] = useState(true)
+  const [isDropdownLoading, setIsDropdownLoading] = useState(false)
+  const [hasDropdownLoaded, setHasDropdownLoaded] = useState(false)
   const [isUserSaving, setIsUserSaving] = useState(false)
   const [isCompanySaving, setIsCompanySaving] = useState(false)
   const [deletingUserId, setDeletingUserId] = useState(null)
@@ -133,7 +153,6 @@ function App() {
     dropdownSearch,
     companyForm.userDetailId,
   )
-  const availableUsers = dropdownUsers.filter((user) => !user.has_company).length
   const pageTitle = getPageTitle(mainTab, userStatus)
   const userButtonLabel = isUserSaving
     ? editingUserId
@@ -151,11 +170,39 @@ function App() {
       : 'Create Company'
 
   useEffect(() => {
-    loadUsers(ACTIVE_STATUS, 1, DEFAULT_PAGE_SIZE)
-    loadUsers(DELETED_STATUS, 1, DEFAULT_PAGE_SIZE)
-    loadCompanies(1, DEFAULT_PAGE_SIZE)
-    loadDropdownUsers()
-  }, [])
+    if (
+      mainTab === HOME_TAB &&
+      !dashboardSummary.hasLoaded &&
+      !dashboardSummary.isLoading
+    ) {
+      loadDashboardSummary()
+      return
+    }
+
+    if (mainTab === USER_TAB && !currentUsers.hasLoaded && !currentUsers.isLoading) {
+      loadUsers(userStatus, currentUsers.page, currentUsers.pageSize, userFilters)
+      return
+    }
+
+    if (mainTab === COMPANY_TAB && !companies.hasLoaded && !companies.isLoading) {
+      loadCompanies(companies.page, companies.pageSize, companyFilters)
+    }
+  }, [
+    companies.hasLoaded,
+    companies.isLoading,
+    companies.page,
+    companies.pageSize,
+    companyFilters,
+    currentUsers.hasLoaded,
+    currentUsers.isLoading,
+    currentUsers.page,
+    currentUsers.pageSize,
+    dashboardSummary.hasLoaded,
+    dashboardSummary.isLoading,
+    mainTab,
+    userFilters,
+    userStatus,
+  ])
 
   useEffect(() => {
     return () => {
@@ -217,6 +264,7 @@ function App() {
           pageSize: requestedPageSize,
           totalPages: Math.max(1, Math.ceil(data.count / requestedPageSize)),
           isLoading: false,
+          hasLoaded: true,
         },
       }))
     } catch (err) {
@@ -262,6 +310,7 @@ function App() {
         pageSize: requestedPageSize,
         totalPages: Math.max(1, Math.ceil(data.count / requestedPageSize)),
         isLoading: false,
+        hasLoaded: true,
       })
     } catch (err) {
       setError(err.message)
@@ -284,10 +333,46 @@ function App() {
 
       const data = await response.json()
       setDropdownUsers(data)
+      setHasDropdownLoaded(true)
     } catch (err) {
       setError(err.message)
     } finally {
       setIsDropdownLoading(false)
+    }
+  }
+
+  async function loadDashboardSummary() {
+    setDashboardSummary((current) => ({
+      ...current,
+      isLoading: true,
+    }))
+    setError('')
+
+    try {
+      const response = await fetch(DASHBOARD_SUMMARY_API_URL)
+
+      if (!response.ok) {
+        throw new Error('Could not load dashboard summary.')
+      }
+
+      const data = await response.json()
+      setDashboardSummary({
+        data: normalizeDashboardSummary(data),
+        isLoading: false,
+        hasLoaded: true,
+      })
+    } catch (err) {
+      setError(err.message)
+      setDashboardSummary((current) => ({
+        ...current,
+        isLoading: false,
+      }))
+    }
+  }
+
+  function loadDropdownUsersOnDemand() {
+    if (!hasDropdownLoaded && !isDropdownLoading) {
+      loadDropdownUsers()
     }
   }
 
@@ -296,30 +381,37 @@ function App() {
     setError('')
   }
 
-  async function refreshAll() {
-    await Promise.all([
-      loadUsers(
-        ACTIVE_STATUS,
-        users[ACTIVE_STATUS].page,
-        users[ACTIVE_STATUS].pageSize,
+  async function refreshCurrentView() {
+    if (mainTab === HOME_TAB) {
+      await loadDashboardSummary()
+      return
+    }
+
+    if (mainTab === USER_TAB) {
+      await loadUsers(
+        userStatus,
+        currentUsers.page,
+        currentUsers.pageSize,
         userFilters,
-      ),
-      loadUsers(
-        DELETED_STATUS,
-        users[DELETED_STATUS].page,
-        users[DELETED_STATUS].pageSize,
-        userFilters,
-      ),
-      loadCompanies(companies.page, companies.pageSize, companyFilters),
-      loadDropdownUsers(),
-    ])
+      )
+      return
+    }
+
+    if (mainTab === COMPANY_TAB) {
+      await loadCompanies(companies.page, companies.pageSize, companyFilters)
+
+      if (hasDropdownLoaded) {
+        await loadDropdownUsers()
+      }
+
+      return
+    }
   }
 
   function selectUserStatus(status) {
     window.clearTimeout(userFilterTimerRef.current)
     setUserStatus(status)
     resetUserForm()
-    loadUsers(status, 1, users[status].pageSize, userFilters)
   }
 
   function updateUserField(event) {
@@ -394,6 +486,7 @@ function App() {
     setEditingCompanyId(company.id)
     setCompanyForm({
       userDetailId: String(company.user_detail),
+      userName: company.user_name,
       companyName: company.company_name,
       role: company.role,
       location: company.location,
@@ -438,7 +531,14 @@ function App() {
         users[ACTIVE_STATUS].pageSize,
         userFilters,
       )
-      await loadDropdownUsers()
+
+      if (hasDropdownLoaded) {
+        await loadDropdownUsers()
+      }
+
+      if (dashboardSummary.hasLoaded) {
+        await loadDashboardSummary()
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -471,13 +571,23 @@ function App() {
 
       resetCompanyForm()
       await loadCompanies(companies.page, companies.pageSize, companyFilters)
-      await loadUsers(
-        ACTIVE_STATUS,
-        users[ACTIVE_STATUS].page,
-        users[ACTIVE_STATUS].pageSize,
-        userFilters,
-      )
-      await loadDropdownUsers()
+
+      if (users[ACTIVE_STATUS].hasLoaded) {
+        await loadUsers(
+          ACTIVE_STATUS,
+          users[ACTIVE_STATUS].page,
+          users[ACTIVE_STATUS].pageSize,
+          userFilters,
+        )
+      }
+
+      if (hasDropdownLoaded) {
+        await loadDropdownUsers()
+      }
+
+      if (dashboardSummary.hasLoaded) {
+        await loadDashboardSummary()
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -504,8 +614,23 @@ function App() {
         users[ACTIVE_STATUS].pageSize,
         userFilters,
       )
-      await loadUsers(DELETED_STATUS, 1, users[DELETED_STATUS].pageSize, userFilters)
-      await loadDropdownUsers()
+
+      if (users[DELETED_STATUS].hasLoaded) {
+        await loadUsers(
+          DELETED_STATUS,
+          1,
+          users[DELETED_STATUS].pageSize,
+          userFilters,
+        )
+      }
+
+      if (hasDropdownLoaded) {
+        await loadDropdownUsers()
+      }
+
+      if (dashboardSummary.hasLoaded) {
+        await loadDashboardSummary()
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -532,8 +657,23 @@ function App() {
         users[DELETED_STATUS].pageSize,
         userFilters,
       )
-      await loadUsers(ACTIVE_STATUS, 1, users[ACTIVE_STATUS].pageSize, userFilters)
-      await loadDropdownUsers()
+
+      if (users[ACTIVE_STATUS].hasLoaded) {
+        await loadUsers(
+          ACTIVE_STATUS,
+          1,
+          users[ACTIVE_STATUS].pageSize,
+          userFilters,
+        )
+      }
+
+      if (hasDropdownLoaded) {
+        await loadDropdownUsers()
+      }
+
+      if (dashboardSummary.hasLoaded) {
+        await loadDashboardSummary()
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -556,13 +696,23 @@ function App() {
 
       resetCompanyForm()
       await loadCompanies(companies.page, companies.pageSize, companyFilters)
-      await loadUsers(
-        ACTIVE_STATUS,
-        users[ACTIVE_STATUS].page,
-        users[ACTIVE_STATUS].pageSize,
-        userFilters,
-      )
-      await loadDropdownUsers()
+
+      if (users[ACTIVE_STATUS].hasLoaded) {
+        await loadUsers(
+          ACTIVE_STATUS,
+          users[ACTIVE_STATUS].page,
+          users[ACTIVE_STATUS].pageSize,
+          userFilters,
+        )
+      }
+
+      if (hasDropdownLoaded) {
+        await loadDropdownUsers()
+      }
+
+      if (dashboardSummary.hasLoaded) {
+        await loadDashboardSummary()
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -627,7 +777,9 @@ function App() {
               <span className="nav-icon">U</span>
               Users
             </span>
-            <strong>{users[ACTIVE_STATUS].count}</strong>
+            <strong>
+              {getNavCount(users[ACTIVE_STATUS], dashboardSummary.data.activeUsers)}
+            </strong>
           </button>
           <button
             type="button"
@@ -638,7 +790,9 @@ function App() {
               <span className="nav-icon">C</span>
               Companies
             </span>
-            <strong>{companies.count}</strong>
+            <strong>
+              {getNavCount(companies, dashboardSummary.data.companyRecords)}
+            </strong>
           </button>
         </nav>
 
@@ -658,8 +812,8 @@ function App() {
           <div className="navbar-actions">
             <span className="status-pill">SQLite</span>
             <span className="status-pill">React Vite</span>
-            <button type="button" onClick={refreshAll}>
-              Refresh
+            <button type="button" onClick={refreshCurrentView}>
+              Refresh View
             </button>
           </div>
         </header>
@@ -667,16 +821,16 @@ function App() {
         <main className="content-area">
           {mainTab === HOME_TAB ? (
             <DashboardPanel
-              users={users}
-              companies={companies}
-              availableUsers={availableUsers}
+              summary={dashboardSummary.data}
+              isLoading={dashboardSummary.isLoading}
+              hasLoaded={dashboardSummary.hasLoaded}
               onOpenUsers={() => selectMainTab(USER_TAB)}
               onOpenDeletedUsers={() => {
                 setUserStatus(DELETED_STATUS)
                 selectMainTab(USER_TAB)
               }}
               onOpenCompanies={() => selectMainTab(COMPANY_TAB)}
-              onRefresh={refreshAll}
+              onRefresh={refreshCurrentView}
             />
           ) : mainTab === USER_TAB ? (
             <UserPanel
@@ -717,8 +871,10 @@ function App() {
               isCompanySaving={isCompanySaving}
               companyButtonLabel={companyButtonLabel}
               dropdownUsers={filteredDropdownUsers}
+              allDropdownUsers={dropdownUsers}
               dropdownSearch={dropdownSearch}
               isDropdownLoading={isDropdownLoading}
+              hasDropdownLoaded={hasDropdownLoaded}
               companyFilters={companyFilters}
               companies={companies}
               deletingCompanyId={deletingCompanyId}
@@ -726,6 +882,7 @@ function App() {
               onSubmit={handleCompanySubmit}
               onChange={updateCompanyField}
               onDropdownSearchChange={(event) => setDropdownSearch(event.target.value)}
+              onLoadDropdownUsers={loadDropdownUsersOnDemand}
               onFilterChange={updateCompanyFilter}
               onResetFilters={resetCompanyFilters}
               onCancel={resetCompanyForm}
@@ -765,52 +922,54 @@ function Toast({ message, onClose }) {
 }
 
 function DashboardPanel({
-  users,
-  companies,
-  availableUsers,
+  summary,
+  isLoading,
+  hasLoaded,
   onOpenUsers,
   onOpenDeletedUsers,
   onOpenCompanies,
   onRefresh,
 }) {
-  const activeUsers = users[ACTIVE_STATUS]
-  const deletedUsers = users[DELETED_STATUS]
-  const recentUsers = activeUsers.rows.slice(0, 5)
-  const recentCompanies = companies.rows.slice(0, 5)
+  const insights = getDashboardInsights(summary)
+  const summaryBars = getDashboardBars(summary)
 
   return (
     <section className="dashboard" aria-label="Dashboard">
       <div className="metric-grid">
         <MetricCard
           label="Active Users"
-          value={activeUsers.count}
-          loading={activeUsers.isLoading}
+          value={summary.activeUsers}
+          loading={isLoading}
+          hasLoaded={hasLoaded}
           tone="blue"
         />
         <MetricCard
           label="Company Records"
-          value={companies.count}
-          loading={companies.isLoading}
+          value={summary.companyRecords}
+          loading={isLoading}
+          hasLoaded={hasLoaded}
           tone="green"
         />
         <MetricCard
           label="Deleted Users"
-          value={deletedUsers.count}
-          loading={deletedUsers.isLoading}
+          value={summary.deletedUsers}
+          loading={isLoading}
+          hasLoaded={hasLoaded}
           tone="red"
         />
         <MetricCard
           label="Available Users"
-          value={availableUsers}
-          loading={activeUsers.isLoading}
+          value={summary.availableUsers}
+          loading={isLoading}
+          hasLoaded={hasLoaded}
           tone="gray"
         />
       </div>
 
       <section className="quick-actions" aria-label="Quick actions">
         <div>
-          <p className="eyebrow">Operations</p>
-          <h2>Control Center</h2>
+          <p className="eyebrow">Summary</p>
+          <h2>Operational Snapshot</h2>
         </div>
         <div className="actions">
           <button type="button" className="primary" onClick={onOpenUsers}>
@@ -822,100 +981,156 @@ function DashboardPanel({
           <button type="button" onClick={onOpenDeletedUsers}>
             Deleted Users
           </button>
-          <button type="button" onClick={onRefresh}>
-            Refresh Data
+          <button type="button" onClick={onRefresh} disabled={isLoading}>
+            {isLoading ? 'Refreshing...' : 'Refresh Summary'}
           </button>
         </div>
       </section>
 
-      <div className="dashboard-grid">
-        <section className="records" aria-label="Recent users">
-          <div className="section-heading list-heading">
-            <h2>Recent Users</h2>
-            <button type="button" onClick={onOpenUsers}>
-              Open
+      <div className="chart-grid">
+        <section className="records dashboard-chart" aria-label="Company coverage">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Coverage</p>
+              <h2>Company Assignment</h2>
+            </div>
+            <button type="button" onClick={onOpenCompanies}>
+              Manage
             </button>
           </div>
 
-          {activeUsers.isLoading ? (
-            <SkeletonTable
-              headers={['Name', 'Age', 'Company']}
-              rows={Array.from({ length: DEFAULT_PAGE_SIZE })}
-            />
-          ) : recentUsers.length === 0 ? (
-            <p className="muted">No users found.</p>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Age</th>
-                    <th>Company</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentUsers.map((user) => (
-                    <tr key={user.id}>
-                      <td>{user.name}</td>
-                      <td>{user.age}</td>
-                      <td>{user.company_detail?.company_name || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <RadialChart
+            label="Assigned"
+            percent={insights.companyCoverage.percent}
+            detail={insights.companyCoverage.detail}
+            loading={isLoading}
+            hasLoaded={hasLoaded}
+          />
         </section>
 
-        <section className="records" aria-label="Recent companies">
-          <div className="section-heading list-heading">
-            <h2>Company Assignments</h2>
-            <button type="button" onClick={onOpenCompanies}>
-              Open
+        <section className="records dashboard-chart" aria-label="User status">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Status</p>
+              <h2>User Lifecycle</h2>
+            </div>
+            <button type="button" onClick={onOpenDeletedUsers}>
+              Review
             </button>
           </div>
 
-          {companies.isLoading ? (
-            <SkeletonTable
-              headers={['User', 'Company', 'Role']}
-              rows={Array.from({ length: DEFAULT_PAGE_SIZE })}
-            />
-          ) : recentCompanies.length === 0 ? (
-            <p className="muted">No company details found.</p>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>Company</th>
-                    <th>Role</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentCompanies.map((company) => (
-                    <tr key={company.id}>
-                      <td>{company.user_name}</td>
-                      <td>{company.company_name}</td>
-                      <td>{company.role}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <div className="insight-stack">
+            {insights.status.map((insight) => (
+              <ProgressInsight
+                key={insight.label}
+                insight={insight}
+                loading={isLoading}
+                hasLoaded={hasLoaded}
+              />
+            ))}
+          </div>
         </section>
       </div>
+
+      <section className="records dashboard-chart" aria-label="Summary distribution">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Distribution</p>
+            <h2>Summary Breakdown</h2>
+          </div>
+        </div>
+
+        <div className="summary-bars">
+          {summaryBars.map((bar) => (
+            <SummaryBar
+              key={bar.label}
+              bar={bar}
+              loading={isLoading}
+              hasLoaded={hasLoaded}
+            />
+          ))}
+        </div>
+      </section>
     </section>
   )
 }
 
-function MetricCard({ label, value, loading, tone }) {
+function MetricCard({ label, value, loading, hasLoaded, tone }) {
   return (
     <article className={`metric-card ${tone}`}>
       <span>{label}</span>
-      {loading ? <span className="metric-skeleton"></span> : <strong>{value}</strong>}
+      {loading ? (
+        <span className="metric-skeleton"></span>
+      ) : (
+        <strong>{hasLoaded ? value : '-'}</strong>
+      )}
+    </article>
+  )
+}
+
+function RadialChart({ label, percent, detail, loading, hasLoaded }) {
+  const chartStyle = {
+    '--chart-value': `${hasLoaded ? percent : 0}%`,
+  }
+
+  return (
+    <div className="radial-chart-wrap">
+      <div className="radial-chart" style={chartStyle}>
+        {loading ? (
+          <span className="metric-skeleton radial-skeleton"></span>
+        ) : (
+          <strong>{hasLoaded ? `${percent}%` : '-'}</strong>
+        )}
+      </div>
+      <div>
+        <span>{label}</span>
+        <p>{hasLoaded ? detail : 'Summary not loaded yet.'}</p>
+      </div>
+    </div>
+  )
+}
+
+function ProgressInsight({ insight, loading, hasLoaded }) {
+  const progressStyle = {
+    '--progress-value': `${hasLoaded ? insight.percent : 0}%`,
+  }
+
+  return (
+    <article className="progress-insight">
+      <div className="progress-row">
+        <span>{insight.label}</span>
+        {loading ? (
+          <span className="skeleton-line compact"></span>
+        ) : (
+          <strong>{hasLoaded ? `${insight.percent}%` : '-'}</strong>
+        )}
+      </div>
+      <div className="progress-track" style={progressStyle}>
+        <span></span>
+      </div>
+      <p>{hasLoaded ? insight.detail : 'Summary not loaded yet.'}</p>
+    </article>
+  )
+}
+
+function SummaryBar({ bar, loading, hasLoaded }) {
+  const barStyle = {
+    '--bar-value': `${hasLoaded ? bar.percent : 0}%`,
+  }
+
+  return (
+    <article className={`summary-bar ${bar.tone}`} style={barStyle}>
+      <div>
+        <span>{bar.label}</span>
+        {loading ? (
+          <span className="skeleton-line compact"></span>
+        ) : (
+          <strong>{hasLoaded ? bar.value : '-'}</strong>
+        )}
+      </div>
+      <div className="bar-track">
+        <span></span>
+      </div>
     </article>
   )
 }
@@ -1032,7 +1247,9 @@ function UserPanel({
           onReset={onResetFilters}
         />
 
-        {currentUsers.isLoading ? (
+        {!currentUsers.hasLoaded && !currentUsers.isLoading ? (
+          <p className="muted">Loading starts when this view opens.</p>
+        ) : currentUsers.isLoading ? (
           <UserTableSkeleton rows={currentUsers.pageSize} />
         ) : currentUsers.rows.length === 0 ? (
           <p className="muted">No users found.</p>
@@ -1127,8 +1344,10 @@ function CompanyPanel({
   isCompanySaving,
   companyButtonLabel,
   dropdownUsers,
+  allDropdownUsers,
   dropdownSearch,
   isDropdownLoading,
+  hasDropdownLoaded,
   companyFilters,
   companies,
   deletingCompanyId,
@@ -1136,6 +1355,7 @@ function CompanyPanel({
   onSubmit,
   onChange,
   onDropdownSearchChange,
+  onLoadDropdownUsers,
   onFilterChange,
   onResetFilters,
   onCancel,
@@ -1148,9 +1368,19 @@ function CompanyPanel({
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
   const isUserDropdownDisabled =
     isDropdownLoading || isCompanySaving || Boolean(editingCompanyId)
-  const selectedUser = dropdownUsers.find(
+  const selectedUser = allDropdownUsers.find(
     (user) => String(user.id) === companyForm.userDetailId,
   )
+
+  function toggleUserDropdown() {
+    const shouldOpen = !isUserDropdownOpen
+
+    if (shouldOpen) {
+      onLoadDropdownUsers()
+    }
+
+    setIsUserDropdownOpen(shouldOpen)
+  }
 
   function selectDropdownUser(user) {
     if (user.has_company && String(user.id) !== companyForm.userDetailId) {
@@ -1181,12 +1411,12 @@ function CompanyPanel({
               className="searchable-select-trigger"
               disabled={isUserDropdownDisabled}
               aria-expanded={isUserDropdownOpen}
-              onClick={() => setIsUserDropdownOpen((current) => !current)}
+              onClick={toggleUserDropdown}
             >
               <span>
                 {isDropdownLoading
                   ? 'Loading users...'
-                  : selectedUser?.name || 'Select user'}
+                  : selectedUser?.name || companyForm.userName || 'Select user'}
               </span>
               <span className="select-caret">v</span>
             </button>
@@ -1202,7 +1432,9 @@ function CompanyPanel({
                 />
 
                 <div className="searchable-select-options">
-                  {dropdownUsers.length === 0 ? (
+                  {isDropdownLoading || !hasDropdownLoaded ? (
+                    <span className="dropdown-empty">Loading users...</span>
+                  ) : dropdownUsers.length === 0 ? (
                     <span className="dropdown-empty">No users found.</span>
                   ) : (
                     dropdownUsers.map((user) => {
@@ -1297,7 +1529,9 @@ function CompanyPanel({
           onReset={onResetFilters}
         />
 
-        {companies.isLoading ? (
+        {!companies.hasLoaded && !companies.isLoading ? (
+          <p className="muted">Loading starts when this view opens.</p>
+        ) : companies.isLoading ? (
           <CompanyTableSkeleton rows={companies.pageSize} />
         ) : companies.rows.length === 0 ? (
           <p className="muted">No company details found.</p>
@@ -1537,6 +1771,8 @@ function CompanyListFilters({ filters, onChange, onReset }) {
 }
 
 function Pagination({ listState, visiblePages, onPageSizeChange, onPageChange }) {
+  const isDisabled = listState.isLoading || !listState.hasLoaded
+
   return (
     <footer className="pagination">
       <label className="page-size">
@@ -1544,7 +1780,7 @@ function Pagination({ listState, visiblePages, onPageSizeChange, onPageChange })
         <select
           value={listState.pageSize}
           onChange={onPageSizeChange}
-          disabled={listState.isLoading}
+          disabled={isDisabled}
         >
           {PAGE_SIZE_OPTIONS.map((pageSize) => (
             <option key={pageSize} value={pageSize}>
@@ -1559,7 +1795,7 @@ function Pagination({ listState, visiblePages, onPageSizeChange, onPageChange })
       <div className="page-controls">
         <button
           type="button"
-          disabled={listState.isLoading || listState.page <= 1}
+          disabled={isDisabled || listState.page <= 1}
           onClick={() => onPageChange(listState.page - 1)}
         >
           Previous
@@ -1571,7 +1807,7 @@ function Pagination({ listState, visiblePages, onPageSizeChange, onPageChange })
               key={page}
               type="button"
               className={page === listState.page ? 'page active' : 'page'}
-              disabled={listState.isLoading}
+              disabled={isDisabled}
               onClick={() => onPageChange(page)}
             >
               {page}
@@ -1581,7 +1817,7 @@ function Pagination({ listState, visiblePages, onPageSizeChange, onPageChange })
 
         <button
           type="button"
-          disabled={listState.isLoading || listState.page >= listState.totalPages}
+          disabled={isDisabled || listState.page >= listState.totalPages}
           onClick={() => onPageChange(listState.page + 1)}
         >
           Next
@@ -1731,6 +1967,123 @@ function filterDropdownUsers(users, search, selectedUserId) {
   })
 }
 
+function normalizeDashboardSummary(data) {
+  return {
+    activeUsers: readNumber(data, [
+      'activeUsers',
+      'active_users',
+      'active_user_count',
+      'totalActiveUsers',
+      'total_active_users',
+    ]),
+    companyRecords: readNumber(data, [
+      'companyRecords',
+      'company_records',
+      'company_count',
+      'companies',
+      'totalCompanies',
+      'total_companies',
+    ]),
+    deletedUsers: readNumber(data, [
+      'deletedUsers',
+      'deleted_users',
+      'deleted_user_count',
+      'totalDeletedUsers',
+      'total_deleted_users',
+    ]),
+    availableUsers: readNumber(data, [
+      'availableUsers',
+      'available_users',
+      'available_user_count',
+      'users_without_company',
+      'unassigned_users',
+    ]),
+  }
+}
+
+function getDashboardInsights(summary) {
+  const activeUsers = summary.activeUsers
+  const deletedUsers = summary.deletedUsers
+  const totalUsers = activeUsers + deletedUsers
+  const assignedUsers = Math.max(0, activeUsers - summary.availableUsers)
+
+  return {
+    companyCoverage: {
+      percent: getPercent(summary.companyRecords, activeUsers),
+      detail: `${summary.companyRecords} company records for ${activeUsers} active users`,
+    },
+    status: [
+      {
+        label: 'Active share',
+        percent: getPercent(activeUsers, totalUsers),
+        detail: `${activeUsers} active of ${totalUsers} total users`,
+      },
+      {
+        label: 'Archived share',
+        percent: getPercent(deletedUsers, totalUsers),
+        detail: `${deletedUsers} deleted user records`,
+      },
+      {
+        label: 'Assigned users',
+        percent: getPercent(assignedUsers, activeUsers),
+        detail: `${assignedUsers} active users already have companies`,
+      },
+    ],
+  }
+}
+
+function getDashboardBars(summary) {
+  const bars = [
+    {
+      label: 'Active Users',
+      value: summary.activeUsers,
+      tone: 'blue',
+    },
+    {
+      label: 'Company Records',
+      value: summary.companyRecords,
+      tone: 'green',
+    },
+    {
+      label: 'Deleted Users',
+      value: summary.deletedUsers,
+      tone: 'red',
+    },
+    {
+      label: 'Available Users',
+      value: summary.availableUsers,
+      tone: 'gray',
+    },
+  ]
+  const maxValue = Math.max(...bars.map((bar) => bar.value), 1)
+
+  return bars.map((bar) => ({
+    ...bar,
+    percent: Math.round((bar.value / maxValue) * 100),
+  }))
+}
+
+function readNumber(data, keys) {
+  for (const key of keys) {
+    const value = data?.[key]
+    const numberValue = Number(value)
+
+    if (Number.isFinite(numberValue)) {
+      return numberValue
+    }
+  }
+
+  return 0
+}
+
+function getPercent(value, total) {
+  if (!total) {
+    return 0
+  }
+
+  return Math.max(0, Math.min(100, Math.round((value / total) * 100)))
+}
+
 function getPageTitle(mainTab, userStatus) {
   if (mainTab === HOME_TAB) {
     return 'Dashboard'
@@ -1744,6 +2097,10 @@ function getPageTitle(mainTab, userStatus) {
 }
 
 function getPageRangeText(listState) {
+  if (!listState.hasLoaded) {
+    return 'Records not loaded'
+  }
+
   if (listState.isLoading) {
     return 'Loading records'
   }
@@ -1756,6 +2113,14 @@ function getPageRangeText(listState) {
   const end = Math.min(listState.count, listState.page * listState.pageSize)
 
   return `Showing ${start}-${end} of ${listState.count}`
+}
+
+function getNavCount(listState, fallbackCount = null) {
+  if (listState.hasLoaded) {
+    return listState.count
+  }
+
+  return fallbackCount === null ? '-' : fallbackCount
 }
 
 function formatApiError(data) {

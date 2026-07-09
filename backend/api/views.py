@@ -13,6 +13,23 @@ from .serializers import (
 )
 
 
+class DashboardSummaryViewSet(viewsets.ViewSet):
+    def list(self, request):
+        active_users = UserDetail.active_objects.count()
+        deleted_users = UserDetail.deleted_objects.count()
+        company_records = CompanyDetail.objects.count()
+        available_users = UserDetail.active_objects.filter(
+            company_details__isnull=True
+        ).count()
+
+        return Response({
+            'active_users': active_users,
+            'company_records': company_records,
+            'deleted_users': deleted_users,
+            'available_users': available_users,
+        })
+
+
 # A ModelViewSet provides list, retrieve, create, update, partial_update,
 # and destroy actions for the UserDetail model.
 class UserDetailViewSet(viewsets.ModelViewSet):
@@ -39,9 +56,12 @@ class UserDetailViewSet(viewsets.ModelViewSet):
         # By default, show only active records.
         # Use /api/v1/user-details/?deleted=true to list soft-deleted records.
         show_deleted = self.request.query_params.get('deleted') == 'true'
-        queryset = UserDetail.objects.prefetch_related(
-            'company_details'
-        ).filter(is_deleted=show_deleted)
+        manager = (
+            UserDetail.deleted_objects
+            if show_deleted
+            else UserDetail.active_objects
+        )
+        queryset = manager.prefetch_related('company_details')
         params = self.request.query_params
 
         # Field-wise filters. These work together with global ?search=.
@@ -65,7 +85,7 @@ class UserDetailViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(company_details__company_name__icontains=company)
 
         return queryset.distinct()
-        
+
 
     def perform_destroy(self, instance):
         # Soft delete: keep the record in the database and mark it as deleted.
@@ -92,7 +112,7 @@ class UserDetailViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='undelete')
     def undelete(self, request, pk=None):
         # Custom ViewSet action for restoring a soft-deleted record.
-        user_detail = get_object_or_404(UserDetail, pk=pk)
+        user_detail = get_object_or_404(UserDetail.deleted_objects, pk=pk)
         user_detail.is_deleted = False
         user_detail.save(update_fields=['is_deleted'])
         serializer = self.get_serializer(user_detail)
@@ -154,8 +174,7 @@ class CompanyDetailViewSet(viewsets.ModelViewSet):
 # Lightweight API for company form dropdown options.
 class UserDropdownViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = (
-        UserDetail.objects.prefetch_related('company_details')
-        .filter(is_deleted=False)
+        UserDetail.active_objects.prefetch_related('company_details')
         .order_by('name')
     )
     serializer_class = UserDropdownSerializer
