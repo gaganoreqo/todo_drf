@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
+import DrfLearnPanel from './DrfLearnPanel.jsx'
+import PythonLearnPanel from './PythonLearnPanel.jsx'
 
 const USER_API_URL = (
   import.meta.env.VITE_API_BASE_URL ||
@@ -19,6 +21,8 @@ const HOME_TAB = 'home'
 const USER_TAB = 'user'
 const COMPANY_TAB = 'company'
 const ADMIN_TAB = 'admin'
+const DRF_LEARN_TAB = 'drf-learn'
+const PYTHON_LEARN_TAB = 'python-learn'
 const ACTIVE_STATUS = 'active'
 const DELETED_STATUS = 'deleted'
 const DEFAULT_PAGE_SIZE = 5
@@ -29,6 +33,7 @@ const emptyDashboardSummary = {
   activeUsers: 0,
   companyRecords: 0,
   deletedUsers: 0,
+  accountCount: 0,
   availableUsers: 0,
 }
 
@@ -170,6 +175,7 @@ function App() {
   const companyFilterTimerRef = useRef(null)
 
   const isAdmin = session?.account?.role === 'admin'
+  const isLearnTab = mainTab === DRF_LEARN_TAB || mainTab === PYTHON_LEARN_TAB
   const currentUsers = users[userStatus]
   const paginationRows = mainTab === COMPANY_TAB ? companies : currentUsers
   const visiblePages = getVisiblePages(
@@ -196,6 +202,7 @@ function App() {
     : editingCompanyId
       ? 'Update Company'
       : 'Create Company'
+  const accountCountLabel = getAccountCountLabel(accounts, dashboardSummary)
 
   useEffect(() => {
     if (!session?.access) {
@@ -1091,6 +1098,28 @@ function App() {
               {getNavCount(companies, dashboardSummary.data.companyRecords)}
             </strong>
           </button>
+          <button
+            type="button"
+            className={mainTab === DRF_LEARN_TAB ? 'nav-item active' : 'nav-item'}
+            onClick={() => selectMainTab(DRF_LEARN_TAB)}
+          >
+            <span>
+              <span className="nav-icon">L</span>
+              DRF Learn
+            </span>
+          </button>
+          <button
+            type="button"
+            className={
+              mainTab === PYTHON_LEARN_TAB ? 'nav-item active' : 'nav-item'
+            }
+            onClick={() => selectMainTab(PYTHON_LEARN_TAB)}
+          >
+            <span>
+              <span className="nav-icon">P</span>
+              Python Learn
+            </span>
+          </button>
           {isAdmin ? (
             <button
               type="button"
@@ -1101,7 +1130,7 @@ function App() {
                 <span className="nav-icon">A</span>
                 Accounts
               </span>
-              <strong>{accounts.hasLoaded ? accounts.rows.length : '-'}</strong>
+              <strong>{accountCountLabel}</strong>
             </button>
           ) : null}
         </nav>
@@ -1122,10 +1151,15 @@ function App() {
           <div className="navbar-actions">
             <span className="status-pill">SQLite</span>
             <span className="status-pill">React Vite</span>
+            {isAdmin ? (
+              <span className="status-pill">Accounts {accountCountLabel}</span>
+            ) : null}
             <span className="status-pill">{API_ROOT.replace(/\/$/, '')}</span>
-            <button type="button" onClick={refreshCurrentView}>
-              Refresh View
-            </button>
+            {isLearnTab ? null : (
+              <button type="button" onClick={refreshCurrentView}>
+                Refresh View
+              </button>
+            )}
             <button type="button" onClick={() => handleLogout()}>
               Logout
             </button>
@@ -1208,6 +1242,10 @@ function App() {
               onPageSizeChange={changePageSize}
               onPageChange={goToPage}
             />
+          ) : mainTab === DRF_LEARN_TAB ? (
+            <DrfLearnPanel />
+          ) : mainTab === PYTHON_LEARN_TAB ? (
+            <PythonLearnPanel />
           ) : (
             <AccountAdminPanel
               accounts={accounts}
@@ -1361,6 +1399,41 @@ function DashboardPanel({
 
   return (
     <section className="dashboard" aria-label="Dashboard">
+      <section className="dashboard-showcase" aria-label="UserDesk overview">
+        <div className="showcase-copy">
+          <p className="eyebrow">UserDesk</p>
+          <h2>Everything in order. Beautifully simple.</h2>
+          <p>
+            Manage people, companies, access, and learning from one focused
+            workspace.
+          </p>
+          <div className="showcase-actions">
+            <button type="button" className="primary" onClick={onOpenUsers}>
+              Manage users
+            </button>
+            <button type="button" onClick={onOpenCompanies}>
+              View companies
+            </button>
+          </div>
+        </div>
+
+        <div className="showcase-device" aria-hidden="true">
+          <div className="device-window">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div className="device-metric large"></div>
+          <div className="device-row"></div>
+          <div className="device-row short"></div>
+          <div className="device-grid">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </div>
+      </section>
+
       <div className="metric-grid">
         <MetricCard
           label="Active Users"
@@ -1382,6 +1455,13 @@ function DashboardPanel({
           loading={isLoading}
           hasLoaded={hasLoaded}
           tone="red"
+        />
+        <MetricCard
+          label="Accounts"
+          value={summary.accountCount}
+          loading={isLoading}
+          hasLoaded={hasLoaded}
+          tone="purple"
         />
         <MetricCard
           label="Available Users"
@@ -2573,6 +2653,13 @@ function normalizeDashboardSummary(data) {
       'totalDeletedUsers',
       'total_deleted_users',
     ]),
+    accountCount: readNumber(data, [
+      'accountCount',
+      'account_count',
+      'accounts',
+      'totalAccounts',
+      'total_accounts',
+    ]),
     availableUsers: readNumber(data, [
       'availableUsers',
       'available_users',
@@ -2632,6 +2719,11 @@ function getDashboardBars(summary) {
       tone: 'red',
     },
     {
+      label: 'Accounts',
+      value: summary.accountCount,
+      tone: 'purple',
+    },
+    {
       label: 'Available Users',
       value: summary.availableUsers,
       tone: 'gray',
@@ -2679,6 +2771,14 @@ function getPageTitle(mainTab, userStatus) {
     return 'Account Administration'
   }
 
+  if (mainTab === DRF_LEARN_TAB) {
+    return 'DRF Learning Center'
+  }
+
+  if (mainTab === PYTHON_LEARN_TAB) {
+    return 'Python Learning Center'
+  }
+
   return 'Company Management'
 }
 
@@ -2719,6 +2819,18 @@ function getNavCount(listState, fallbackCount = null) {
   }
 
   return fallbackCount === null ? '-' : fallbackCount
+}
+
+function getAccountCountLabel(accounts, dashboardSummary) {
+  if (accounts.hasLoaded) {
+    return accounts.rows.length
+  }
+
+  if (dashboardSummary.hasLoaded) {
+    return dashboardSummary.data.accountCount
+  }
+
+  return '-'
 }
 
 function formatApiError(data) {

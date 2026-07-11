@@ -536,6 +536,7 @@ class UserDetailApiTests(APITestCase):
     def test_dashboard_summary_returns_counts(self):
         user_with_company = self.create_user(name='Anita')
         self.create_user(name='Rahul')
+        self.create_account(email='member@example.com')
         deleted_user = self.create_user(name='Deleted')
         deleted_user.is_deleted = True
         deleted_user.save(update_fields=['is_deleted'])
@@ -547,6 +548,7 @@ class UserDetailApiTests(APITestCase):
         self.assertEqual(response.data['active_users'], 2)
         self.assertEqual(response.data['company_records'], 1)
         self.assertEqual(response.data['deleted_users'], 1)
+        self.assertEqual(response.data['account_count'], 2)
         self.assertEqual(response.data['available_users'], 1)
 
     def test_user_pagination(self):

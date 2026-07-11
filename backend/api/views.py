@@ -129,6 +129,7 @@ class DashboardSummaryViewSet(viewsets.ViewSet):
         active_users = UserDetail.active_objects.count()
         deleted_users = UserDetail.deleted_objects.count()
         company_records = CompanyDetail.objects.count()
+        account_count = Account.objects.count()
         available_users = UserDetail.active_objects.filter(
             company_details__isnull=True
         ).count()
@@ -137,6 +138,7 @@ class DashboardSummaryViewSet(viewsets.ViewSet):
             'active_users': active_users,
             'company_records': company_records,
             'deleted_users': deleted_users,
+            'account_count': account_count,
             'available_users': available_users,
         })
 
