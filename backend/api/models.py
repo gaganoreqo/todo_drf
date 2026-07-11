@@ -1,4 +1,50 @@
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
+
+
+class Account(models.Model):
+    ROLE_ADMIN = 'admin'
+    ROLE_USER = 'user'
+    ROLE_CHOICES = [
+        (ROLE_ADMIN, 'Admin'),
+        (ROLE_USER, 'User'),
+    ]
+
+    email = models.EmailField(unique=True)
+    full_name = models.CharField(max_length=255)
+    password_hash = models.CharField(max_length=255)
+    role = models.CharField(
+        max_length=20,
+        choices=ROLE_CHOICES,
+        default=ROLE_USER,
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    @property
+    def is_authenticated(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
+
+    @property
+    def is_admin(self):
+        return self.role == self.ROLE_ADMIN
+
+    def set_password(self, raw_password):
+        self.password_hash = make_password(raw_password)
+
+    def check_password(self, raw_password):
+        return check_password(raw_password, self.password_hash)
+
+    def __str__(self):
+        return self.email
 
 
 class UserDetailQuerySet(models.QuerySet):

@@ -1,16 +1,127 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
-from rest_framework.response import Response
 
-from .models import CompanyDetail, UserDetail
+from .jwt import create_access_token
+from .models import Account, CompanyDetail, UserDetail
 from .pagination import DynamicPageNumberPagination
+from .permissions import IsAdminAccount
 from .serializers import (
+    AccountSerializer,
     CompanyDetailSerializer,
+    LoginSerializer,
+    SignupSerializer,
     UserDetailSerializer,
     UserDropdownSerializer,
 )
+
+
+class SignupView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = SignupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        account = serializer.save()
+
+        return Response(
+            {
+                'access': create_access_token(account),
+                'account': AccountSerializer(account).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        account = serializer.validated_data['account']
+
+        return Response({
+            'access': create_access_token(account),
+            'account': AccountSerializer(account).data,
+        })
+
+
+class MeView(APIView):
+    def get(self, request):
+        return Response(AccountSerializer(request.user).data)
+
+
+class AccountAdminViewSet(viewsets.ModelViewSet):
+    queryset = Account.objects.all()
+    serializer_class = AccountSerializer
+    permission_classes = [IsAdminAccount]
+    pagination_class = None
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+    def partial_update(self, request, *args, **kwargs):
+        account = self.get_object()
+        next_role = request.data.get('role', account.role)
+        next_is_active = request.data.get('is_active', account.is_active)
+
+        if account.id == request.user.id and self._is_false_value(next_is_active):
+            return Response(
+                {'detail': 'You cannot deactivate your own admin account.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if account.id == request.user.id and next_role != Account.ROLE_ADMIN:
+            return Response(
+                {'detail': 'You cannot remove your own admin role.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if (
+            account.role == Account.ROLE_ADMIN
+            and (
+                next_role != Account.ROLE_ADMIN
+                or self._is_false_value(next_is_active)
+            )
+            and self._is_last_active_admin(account)
+        ):
+            return Response(
+                {'detail': 'At least one active admin account is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        account = self.get_object()
+
+        if account.id == request.user.id:
+            return Response(
+                {'detail': 'You cannot deactivate your own admin account.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if account.role == Account.ROLE_ADMIN and self._is_last_active_admin(account):
+            return Response(
+                {'detail': 'At least one active admin account is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        account.is_active = False
+        account.save(update_fields=['is_active', 'updated_at'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _is_last_active_admin(self, account):
+        return not Account.objects.filter(
+            role=Account.ROLE_ADMIN,
+            is_active=True,
+        ).exclude(pk=account.pk).exists()
+
+    def _is_false_value(self, value):
+        return value in [False, 'false', 'False', '0', 0]
 
 
 class DashboardSummaryViewSet(viewsets.ViewSet):

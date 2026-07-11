@@ -9,10 +9,16 @@ const API_ROOT = USER_API_URL.replace(/user-details\/$/, '')
 const COMPANY_API_URL = `${API_ROOT}company-details/`
 const USER_DROPDOWN_API_URL = `${API_ROOT}user-dropdown/`
 const DASHBOARD_SUMMARY_API_URL = `${API_ROOT}dashboard-summary/`
+const LOGIN_API_URL = `${API_ROOT}auth/login/`
+const SIGNUP_API_URL = `${API_ROOT}auth/signup/`
+const ACCOUNTS_API_URL = `${API_ROOT}accounts/`
+const AUTH_TOKEN_STORAGE_KEY = 'todo_drf_access_token'
+const AUTH_ACCOUNT_STORAGE_KEY = 'todo_drf_account'
 
 const HOME_TAB = 'home'
 const USER_TAB = 'user'
 const COMPANY_TAB = 'company'
+const ADMIN_TAB = 'admin'
 const ACTIVE_STATUS = 'active'
 const DELETED_STATUS = 'deleted'
 const DEFAULT_PAGE_SIZE = 5
@@ -38,6 +44,12 @@ const emptyCompanyForm = {
   companyName: '',
   role: '',
   location: '',
+}
+
+const emptyAuthForm = {
+  fullName: '',
+  email: '',
+  password: '',
 }
 
 const emptyUserFilters = {
@@ -73,6 +85,14 @@ function createListState() {
 function createDashboardState() {
   return {
     data: emptyDashboardSummary,
+    isLoading: false,
+    hasLoaded: false,
+  }
+}
+
+function createAccountState() {
+  return {
+    rows: [],
     isLoading: false,
     hasLoaded: false,
   }
@@ -115,6 +135,11 @@ function buildCompanyUrl(page, pageSize, filters) {
 }
 
 function App() {
+  const [session, setSession] = useState(loadStoredSession)
+  const [authMode, setAuthMode] = useState('login')
+  const [authForm, setAuthForm] = useState(emptyAuthForm)
+  const [isAuthLoading, setIsAuthLoading] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [mainTab, setMainTab] = useState(HOME_TAB)
   const [userStatus, setUserStatus] = useState(ACTIVE_STATUS)
   const [userForm, setUserForm] = useState(emptyUserForm)
@@ -130,11 +155,13 @@ function App() {
   })
   const [companies, setCompanies] = useState(createListState())
   const [dashboardSummary, setDashboardSummary] = useState(createDashboardState())
+  const [accounts, setAccounts] = useState(createAccountState())
   const [dropdownUsers, setDropdownUsers] = useState([])
   const [isDropdownLoading, setIsDropdownLoading] = useState(false)
   const [hasDropdownLoaded, setHasDropdownLoaded] = useState(false)
   const [isUserSaving, setIsUserSaving] = useState(false)
   const [isCompanySaving, setIsCompanySaving] = useState(false)
+  const [savingAccountId, setSavingAccountId] = useState(null)
   const [deletingUserId, setDeletingUserId] = useState(null)
   const [restoringUserId, setRestoringUserId] = useState(null)
   const [deletingCompanyId, setDeletingCompanyId] = useState(null)
@@ -142,6 +169,7 @@ function App() {
   const userFilterTimerRef = useRef(null)
   const companyFilterTimerRef = useRef(null)
 
+  const isAdmin = session?.account?.role === 'admin'
   const currentUsers = users[userStatus]
   const paginationRows = mainTab === COMPANY_TAB ? companies : currentUsers
   const visiblePages = getVisiblePages(
@@ -170,6 +198,10 @@ function App() {
       : 'Create Company'
 
   useEffect(() => {
+    if (!session?.access) {
+      return
+    }
+
     if (
       mainTab === HOME_TAB &&
       !dashboardSummary.hasLoaded &&
@@ -186,8 +218,20 @@ function App() {
 
     if (mainTab === COMPANY_TAB && !companies.hasLoaded && !companies.isLoading) {
       loadCompanies(companies.page, companies.pageSize, companyFilters)
+      return
+    }
+
+    if (
+      mainTab === ADMIN_TAB &&
+      isAdmin &&
+      !accounts.hasLoaded &&
+      !accounts.isLoading
+    ) {
+      loadAccounts()
     }
   }, [
+    accounts.hasLoaded,
+    accounts.isLoading,
     companies.hasLoaded,
     companies.isLoading,
     companies.page,
@@ -199,7 +243,9 @@ function App() {
     currentUsers.pageSize,
     dashboardSummary.hasLoaded,
     dashboardSummary.isLoading,
+    isAdmin,
     mainTab,
+    session?.access,
     userFilters,
     userStatus,
   ])
@@ -212,6 +258,12 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (mainTab === ADMIN_TAB && !isAdmin) {
+      setMainTab(HOME_TAB)
+    }
+  }, [isAdmin, mainTab])
+
+  useEffect(() => {
     if (!error) {
       return undefined
     }
@@ -222,6 +274,114 @@ function App() {
 
     return () => window.clearTimeout(timer)
   }, [error])
+
+  async function apiFetch(url, options = {}) {
+    if (!session?.access) {
+      throw new Error('Please log in again.')
+    }
+
+    const headers = new Headers(options.headers || {})
+    headers.set('Authorization', `Bearer ${session.access}`)
+
+    if (options.body && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json')
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    })
+
+    if (response.status === 401) {
+      handleLogout('Session expired. Please log in again.')
+      throw new Error('Session expired. Please log in again.')
+    }
+
+    return response
+  }
+
+  function updateAuthField(event) {
+    const { name, value } = event.target
+    setAuthForm((current) => ({
+      ...current,
+      [name]: value,
+    }))
+  }
+
+  function switchAuthMode(mode) {
+    setAuthMode(mode)
+    setAuthError('')
+  }
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault()
+    setIsAuthLoading(true)
+    setAuthError('')
+    setError('')
+
+    const isSignup = authMode === 'signup'
+    const payload = isSignup
+      ? {
+          email: authForm.email.trim(),
+          full_name: authForm.fullName.trim(),
+          password: authForm.password,
+        }
+      : {
+          email: authForm.email.trim(),
+          password: authForm.password,
+        }
+
+    try {
+      const response = await fetch(isSignup ? SIGNUP_API_URL : LOGIN_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        throw new Error(formatApiError(await response.json()))
+      }
+
+      const data = await response.json()
+      const nextSession = {
+        access: data.access,
+        account: data.account,
+      }
+
+      saveStoredSession(nextSession)
+      setSession(nextSession)
+      setAuthForm(emptyAuthForm)
+      setMainTab(HOME_TAB)
+    } catch (err) {
+      setAuthError(err.message)
+    } finally {
+      setIsAuthLoading(false)
+    }
+  }
+
+  function handleLogout(message = '') {
+    clearStoredSession()
+    setSession(null)
+    setMainTab(HOME_TAB)
+    setUserStatus(ACTIVE_STATUS)
+    setUserForm(emptyUserForm)
+    setCompanyForm(emptyCompanyForm)
+    setEditingUserId(null)
+    setEditingCompanyId(null)
+    setUsers({
+      [ACTIVE_STATUS]: createListState(),
+      [DELETED_STATUS]: createListState(),
+    })
+    setCompanies(createListState())
+    setDashboardSummary(createDashboardState())
+    setAccounts(createAccountState())
+    setDropdownUsers([])
+    setHasDropdownLoaded(false)
+    setAuthError(message)
+    setError('')
+  }
 
   async function loadUsers(status, page, pageSize, filters = userFilters) {
     const requestedPage = Math.max(1, Number(page) || 1)
@@ -243,7 +403,7 @@ function App() {
     setError('')
 
     try {
-      const response = await fetch(url)
+      const response = await apiFetch(url)
 
       if (response.status === 404 && requestedPage > 1) {
         await loadUsers(status, requestedPage - 1, requestedPageSize, filters)
@@ -291,7 +451,7 @@ function App() {
     setError('')
 
     try {
-      const response = await fetch(url)
+      const response = await apiFetch(url)
 
       if (response.status === 404 && requestedPage > 1) {
         await loadCompanies(requestedPage - 1, requestedPageSize, filters)
@@ -325,7 +485,7 @@ function App() {
     setIsDropdownLoading(true)
 
     try {
-      const response = await fetch(USER_DROPDOWN_API_URL)
+      const response = await apiFetch(USER_DROPDOWN_API_URL)
 
       if (!response.ok) {
         throw new Error('Could not load users for dropdown.')
@@ -349,7 +509,7 @@ function App() {
     setError('')
 
     try {
-      const response = await fetch(DASHBOARD_SUMMARY_API_URL)
+      const response = await apiFetch(DASHBOARD_SUMMARY_API_URL)
 
       if (!response.ok) {
         throw new Error('Could not load dashboard summary.')
@@ -364,6 +524,35 @@ function App() {
     } catch (err) {
       setError(err.message)
       setDashboardSummary((current) => ({
+        ...current,
+        isLoading: false,
+      }))
+    }
+  }
+
+  async function loadAccounts() {
+    setAccounts((current) => ({
+      ...current,
+      isLoading: true,
+    }))
+    setError('')
+
+    try {
+      const response = await apiFetch(ACCOUNTS_API_URL)
+
+      if (!response.ok) {
+        throw new Error('Could not load accounts.')
+      }
+
+      const data = await response.json()
+      setAccounts({
+        rows: data,
+        isLoading: false,
+        hasLoaded: true,
+      })
+    } catch (err) {
+      setError(err.message)
+      setAccounts((current) => ({
         ...current,
         isLoading: false,
       }))
@@ -405,6 +594,10 @@ function App() {
       }
 
       return
+    }
+
+    if (mainTab === ADMIN_TAB && isAdmin) {
+      await loadAccounts()
     }
   }
 
@@ -512,7 +705,7 @@ function App() {
     const method = editingUserId ? 'PUT' : 'POST'
 
     try {
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -557,7 +750,7 @@ function App() {
     const method = editingCompanyId ? 'PUT' : 'POST'
 
     try {
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -600,7 +793,7 @@ function App() {
     setDeletingUserId(userId)
 
     try {
-      const response = await fetch(`${USER_API_URL}${userId}/`, {
+      const response = await apiFetch(`${USER_API_URL}${userId}/`, {
         method: 'DELETE',
       })
 
@@ -643,7 +836,7 @@ function App() {
     setRestoringUserId(userId)
 
     try {
-      const response = await fetch(`${USER_API_URL}${userId}/undelete/`, {
+      const response = await apiFetch(`${USER_API_URL}${userId}/undelete/`, {
         method: 'PATCH',
       })
 
@@ -686,7 +879,7 @@ function App() {
     setDeletingCompanyId(companyId)
 
     try {
-      const response = await fetch(`${COMPANY_API_URL}${companyId}/`, {
+      const response = await apiFetch(`${COMPANY_API_URL}${companyId}/`, {
         method: 'DELETE',
       })
 
@@ -720,12 +913,93 @@ function App() {
     }
   }
 
+  async function updateAccount(accountId, payload) {
+    setError('')
+    setSavingAccountId(accountId)
+
+    try {
+      const response = await apiFetch(`${ACCOUNTS_API_URL}${accountId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        throw new Error(formatApiError(await response.json()))
+      }
+
+      const updatedAccount = await response.json()
+      setAccounts((current) => ({
+        ...current,
+        rows: current.rows.map((account) =>
+          account.id === updatedAccount.id ? updatedAccount : account,
+        ),
+        hasLoaded: true,
+      }))
+
+      if (session?.account?.id === updatedAccount.id) {
+        const nextSession = {
+          ...session,
+          account: updatedAccount,
+        }
+        saveStoredSession(nextSession)
+        setSession(nextSession)
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSavingAccountId(null)
+    }
+  }
+
+  async function changeAccountRole(account, role) {
+    if (account.role === role) {
+      return
+    }
+
+    await updateAccount(account.id, { role })
+  }
+
+  async function toggleAccountStatus(account) {
+    setError('')
+    setSavingAccountId(account.id)
+
+    try {
+      if (account.is_active) {
+        const response = await apiFetch(`${ACCOUNTS_API_URL}${account.id}/`, {
+          method: 'DELETE',
+        })
+
+        if (!response.ok) {
+          throw new Error(formatApiError(await response.json()))
+        }
+
+        setAccounts((current) => ({
+          ...current,
+          rows: current.rows.map((row) =>
+            row.id === account.id ? { ...row, is_active: false } : row,
+          ),
+        }))
+        return
+      }
+
+      await updateAccount(account.id, { is_active: true })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSavingAccountId(null)
+    }
+  }
+
   function changePageSize(event) {
     const pageSize = Number(event.target.value)
 
     if (mainTab === USER_TAB) {
       window.clearTimeout(userFilterTimerRef.current)
       loadUsers(userStatus, 1, pageSize, userFilters)
+      return
+    }
+
+    if (mainTab !== COMPANY_TAB) {
       return
     }
 
@@ -740,8 +1014,31 @@ function App() {
       return
     }
 
+    if (mainTab !== COMPANY_TAB) {
+      return
+    }
+
     window.clearTimeout(companyFilterTimerRef.current)
     loadCompanies(page, companies.pageSize, companyFilters)
+  }
+
+  if (!session?.access) {
+    return (
+      <>
+        <Toast message={authError || error} onClose={() => {
+          setAuthError('')
+          setError('')
+        }} />
+        <AuthPage
+          mode={authMode}
+          form={authForm}
+          isLoading={isAuthLoading}
+          onSubmit={handleAuthSubmit}
+          onChange={updateAuthField}
+          onModeChange={switchAuthMode}
+        />
+      </>
+    )
   }
 
   return (
@@ -794,12 +1091,25 @@ function App() {
               {getNavCount(companies, dashboardSummary.data.companyRecords)}
             </strong>
           </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              className={mainTab === ADMIN_TAB ? 'nav-item active' : 'nav-item'}
+              onClick={() => selectMainTab(ADMIN_TAB)}
+            >
+              <span>
+                <span className="nav-icon">A</span>
+                Accounts
+              </span>
+              <strong>{accounts.hasLoaded ? accounts.rows.length : '-'}</strong>
+            </button>
+          ) : null}
         </nav>
 
         <div className="sidebar-status">
-          <span>API</span>
-          <strong>DRF Backend</strong>
-          <small>{API_ROOT.replace(/\/$/, '')}</small>
+          <span>{session.account.role}</span>
+          <strong>{session.account.full_name}</strong>
+          <small>{session.account.email}</small>
         </div>
       </aside>
 
@@ -812,8 +1122,12 @@ function App() {
           <div className="navbar-actions">
             <span className="status-pill">SQLite</span>
             <span className="status-pill">React Vite</span>
+            <span className="status-pill">{API_ROOT.replace(/\/$/, '')}</span>
             <button type="button" onClick={refreshCurrentView}>
               Refresh View
+            </button>
+            <button type="button" onClick={() => handleLogout()}>
+              Logout
             </button>
           </div>
         </header>
@@ -864,7 +1178,7 @@ function App() {
               onPageSizeChange={changePageSize}
               onPageChange={goToPage}
             />
-          ) : (
+          ) : mainTab === COMPANY_TAB ? (
             <CompanyPanel
               companyForm={companyForm}
               editingCompanyId={editingCompanyId}
@@ -894,10 +1208,122 @@ function App() {
               onPageSizeChange={changePageSize}
               onPageChange={goToPage}
             />
+          ) : (
+            <AccountAdminPanel
+              accounts={accounts}
+              currentAccount={session.account}
+              savingAccountId={savingAccountId}
+              onRefresh={loadAccounts}
+              onRoleChange={changeAccountRole}
+              onStatusChange={toggleAccountStatus}
+            />
           )}
         </main>
       </section>
     </div>
+  )
+}
+
+function AuthPage({
+  mode,
+  form,
+  isLoading,
+  onSubmit,
+  onChange,
+  onModeChange,
+}) {
+  const isSignup = mode === 'signup'
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel" aria-label="Account access">
+        <div className="auth-brand">
+          <span className="brand-mark">UD</span>
+          <div>
+            <strong>UserDesk ERP</strong>
+            <small>DRF JWT Console</small>
+          </div>
+        </div>
+
+        <div className="auth-card">
+          <div className="auth-tabs" aria-label="Auth mode">
+            <button
+              type="button"
+              className={mode === 'login' ? 'subtab active' : 'subtab'}
+              onClick={() => onModeChange('login')}
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              className={isSignup ? 'subtab active' : 'subtab'}
+              onClick={() => onModeChange('signup')}
+            >
+              Signup
+            </button>
+          </div>
+
+          <form className="auth-form" onSubmit={onSubmit}>
+            <div>
+              <p className="eyebrow">Account</p>
+              <h1>{isSignup ? 'Create Account' : 'Login'}</h1>
+            </div>
+
+            {isSignup ? (
+              <label>
+                Full Name
+                <input
+                  name="fullName"
+                  type="text"
+                  value={form.fullName}
+                  onChange={onChange}
+                  placeholder="Alex Morgan"
+                />
+              </label>
+            ) : null}
+
+            <label>
+              Email
+              <input
+                name="email"
+                type="email"
+                value={form.email}
+                onChange={onChange}
+                placeholder="alex@example.com"
+                autoComplete="email"
+              />
+            </label>
+
+            <label>
+              Password
+              <input
+                name="password"
+                type="password"
+                value={form.password}
+                onChange={onChange}
+                placeholder="Password"
+                autoComplete={isSignup ? 'new-password' : 'current-password'}
+              />
+            </label>
+
+            <button
+              className={isLoading ? 'primary button-loading' : 'primary'}
+              type="submit"
+              disabled={isLoading}
+            >
+              {isLoading ? <span className="button-spinner"></span> : null}
+              {isLoading
+                ? isSignup
+                  ? 'Creating...'
+                  : 'Logging in...'
+                : isSignup
+                  ? 'Create Account'
+                  : 'Login'}
+            </button>
+          </form>
+        </div>
+      </section>
+    </main>
   )
 }
 
@@ -1596,6 +2022,111 @@ function CompanyPanel({
   )
 }
 
+function AccountAdminPanel({
+  accounts,
+  currentAccount,
+  savingAccountId,
+  onRefresh,
+  onRoleChange,
+  onStatusChange,
+}) {
+  return (
+    <section className="records admin-panel" aria-label="Account administration">
+      <div className="section-heading list-heading">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h2>Accounts</h2>
+        </div>
+        <button type="button" disabled={accounts.isLoading} onClick={onRefresh}>
+          Refresh
+        </button>
+      </div>
+
+      {!accounts.hasLoaded && !accounts.isLoading ? (
+        <p className="muted">Loading starts when this view opens.</p>
+      ) : accounts.isLoading ? (
+        <AccountTableSkeleton rows={5} />
+      ) : accounts.rows.length === 0 ? (
+        <p className="muted">No accounts found.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.rows.map((account) => {
+                const isCurrentAccount = account.id === currentAccount.id
+                const isSaving = savingAccountId === account.id
+
+                return (
+                  <tr key={account.id}>
+                    <td>{account.full_name}</td>
+                    <td>{account.email}</td>
+                    <td>
+                      <select
+                        className="role-select"
+                        value={account.role}
+                        disabled={isSaving || isCurrentAccount}
+                        onChange={(event) =>
+                          onRoleChange(account, event.target.value)
+                        }
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="user">User</option>
+                      </select>
+                    </td>
+                    <td>
+                      <span
+                        className={
+                          account.is_active
+                            ? 'account-status active'
+                            : 'account-status inactive'
+                        }
+                      >
+                        {account.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td>{formatDate(account.created_at)}</td>
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className={
+                            isSaving
+                              ? `button-loading ${
+                                  account.is_active ? 'danger' : 'restore'
+                                }`
+                              : account.is_active
+                                ? 'danger'
+                                : 'restore'
+                          }
+                          disabled={isSaving || isCurrentAccount}
+                          onClick={() => onStatusChange(account)}
+                        >
+                          {isSaving ? <span className="button-spinner"></span> : null}
+                          {account.is_active ? 'Deactivate' : 'Activate'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function UserListFilters({ filters, onChange, onReset }) {
   return (
     <div className="filter-panel" aria-label="User filters">
@@ -1849,6 +2380,17 @@ function CompanyTableSkeleton({ rows }) {
   )
 }
 
+function AccountTableSkeleton({ rows }) {
+  const skeletonRows = Array.from({ length: Math.max(1, rows) })
+
+  return (
+    <SkeletonTable
+      headers={['Name', 'Email', 'Role', 'Status', 'Created', 'Actions']}
+      rows={skeletonRows}
+    />
+  )
+}
+
 function SkeletonTable({ headers, rows }) {
   return (
     <div
@@ -1885,6 +2427,46 @@ function SkeletonTable({ headers, rows }) {
       </table>
     </div>
   )
+}
+
+function loadStoredSession() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const access = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
+  const rawAccount = window.localStorage.getItem(AUTH_ACCOUNT_STORAGE_KEY)
+
+  if (!access || !rawAccount) {
+    return null
+  }
+
+  try {
+    return {
+      access,
+      account: JSON.parse(rawAccount),
+    }
+  } catch {
+    clearStoredSession()
+    return null
+  }
+}
+
+function saveStoredSession(session) {
+  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, session.access)
+  window.localStorage.setItem(
+    AUTH_ACCOUNT_STORAGE_KEY,
+    JSON.stringify(session.account),
+  )
+}
+
+function clearStoredSession() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+  window.localStorage.removeItem(AUTH_ACCOUNT_STORAGE_KEY)
 }
 
 function buildUserPayload(form) {
@@ -2093,7 +2675,23 @@ function getPageTitle(mainTab, userStatus) {
     return userStatus === ACTIVE_STATUS ? 'User Management' : 'Deleted Users'
   }
 
+  if (mainTab === ADMIN_TAB) {
+    return 'Account Administration'
+  }
+
   return 'Company Management'
+}
+
+function formatDate(value) {
+  if (!value) {
+    return '-'
+  }
+
+  return new Intl.DateTimeFormat('en', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(value))
 }
 
 function getPageRangeText(listState) {

@@ -2,7 +2,86 @@ from django.db import transaction
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 
-from .models import CompanyDetail, UserDetail
+from .models import Account, CompanyDetail, UserDetail
+
+
+class AccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Account
+        fields = [
+            'id',
+            'email',
+            'full_name',
+            'role',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'email', 'created_at', 'updated_at']
+
+    def validate_full_name(self, value):
+        full_name = value.strip()
+
+        if not full_name:
+            raise serializers.ValidationError('Full name is required.')
+
+        return full_name
+
+
+class SignupSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    full_name = serializers.CharField(max_length=255)
+    password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_email(self, value):
+        email = value.strip().lower()
+
+        if Account.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError('This email is already registered.')
+
+        return email
+
+    def validate_full_name(self, value):
+        full_name = value.strip()
+
+        if not full_name:
+            raise serializers.ValidationError('Full name is required.')
+
+        return full_name
+
+    def create(self, validated_data):
+        is_first_account = not Account.objects.exists()
+        account = Account(
+            email=validated_data['email'],
+            full_name=validated_data['full_name'],
+            role=Account.ROLE_ADMIN if is_first_account else Account.ROLE_USER,
+        )
+        account.set_password(validated_data['password'])
+        account.save()
+        return account
+
+
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        email = attrs['email'].strip().lower()
+        password = attrs['password']
+
+        try:
+            account = Account.objects.get(email__iexact=email)
+        except Account.DoesNotExist as exc:
+            raise serializers.ValidationError('Invalid email or password.') from exc
+
+        if not account.is_active:
+            raise serializers.ValidationError('This account is inactive.')
+
+        if not account.check_password(password):
+            raise serializers.ValidationError('Invalid email or password.')
+
+        attrs['account'] = account
+        return attrs
 
 
 # Handles company fields for the separate company-details endpoint.

@@ -3,7 +3,8 @@ from unittest.mock import patch
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import CompanyDetail, UserDetail
+from .jwt import create_access_token
+from .models import Account, CompanyDetail, UserDetail
 from .serializers import UserDetailSerializer
 
 
@@ -14,6 +15,37 @@ class UserDetailApiTests(APITestCase):
     company_url = '/api/v1/company-details/'
     dropdown_url = '/api/v1/user-dropdown/'
     dashboard_url = '/api/v1/dashboard-summary/'
+    signup_url = '/api/v1/auth/signup/'
+    login_url = '/api/v1/auth/login/'
+    accounts_url = '/api/v1/accounts/'
+
+    def setUp(self):
+        self.admin_account = self.create_account(
+            email='admin@example.com',
+            role=Account.ROLE_ADMIN,
+        )
+        self.authenticate(self.admin_account)
+
+    def create_account(
+        self,
+        email='user@example.com',
+        full_name='Test User',
+        password='Password123',
+        role=Account.ROLE_USER,
+    ):
+        account = Account(
+            email=email,
+            full_name=full_name,
+            role=role,
+        )
+        account.set_password(password)
+        account.save()
+        return account
+
+    def authenticate(self, account):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f'Bearer {create_access_token(account)}'
+        )
 
     def create_user(self, name='Rahul', age=25, gender='Male'):
         return UserDetail.objects.create(name=name, age=age, gender=gender)
@@ -31,6 +63,90 @@ class UserDetailApiTests(APITestCase):
             role=role,
             location=location,
         )
+
+    def test_protected_api_requires_jwt(self):
+        self.client.credentials()
+
+        response = self.client.get(self.user_url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_signup_creates_first_account_as_admin(self):
+        Account.objects.all().delete()
+        self.client.credentials()
+
+        response = self.client.post(
+            self.signup_url,
+            {
+                'email': 'first@example.com',
+                'full_name': 'First Admin',
+                'password': 'Password123',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('access', response.data)
+        self.assertEqual(response.data['account']['role'], Account.ROLE_ADMIN)
+        self.assertEqual(Account.objects.get().email, 'first@example.com')
+
+    def test_signup_creates_later_accounts_as_user(self):
+        self.client.credentials()
+
+        response = self.client.post(
+            self.signup_url,
+            {
+                'email': 'newuser@example.com',
+                'full_name': 'New User',
+                'password': 'Password123',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('access', response.data)
+        self.assertEqual(response.data['account']['role'], Account.ROLE_USER)
+
+    def test_login_returns_jwt_for_valid_account(self):
+        self.client.credentials()
+
+        response = self.client.post(
+            self.login_url,
+            {
+                'email': self.admin_account.email,
+                'password': 'Password123',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        self.assertEqual(response.data['account']['email'], self.admin_account.email)
+
+    def test_admin_can_list_accounts(self):
+        self.create_account(email='member@example.com')
+
+        response = self.client.get(self.accounts_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+    def test_account_admin_requires_admin_role(self):
+        member = self.create_account(email='member@example.com')
+        self.authenticate(member)
+
+        response = self.client.get(self.accounts_url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_cannot_deactivate_self(self):
+        response = self.client.delete(
+            f'{self.accounts_url}{self.admin_account.id}/'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.admin_account.refresh_from_db()
+        self.assertTrue(self.admin_account.is_active)
 
     def test_create_user(self):
         response = self.client.post(

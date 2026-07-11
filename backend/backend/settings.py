@@ -134,6 +134,12 @@ CORS_ALLOWED_ORIGINS = [
 # count, next, previous, and results.
 # The custom pagination class accepts ?page= and ?page_size= from the frontend.
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'api.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
     'DEFAULT_PAGINATION_CLASS': 'api.pagination.DynamicPageNumberPagination',
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
