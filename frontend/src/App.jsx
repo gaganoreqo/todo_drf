@@ -16,6 +16,7 @@ const SIGNUP_API_URL = `${API_ROOT}auth/signup/`
 const ACCOUNTS_API_URL = `${API_ROOT}accounts/`
 const AUTH_TOKEN_STORAGE_KEY = 'todo_drf_access_token'
 const AUTH_ACCOUNT_STORAGE_KEY = 'todo_drf_account'
+const THEME_STORAGE_KEY = 'todo_drf_theme'
 
 const HOME_TAB = 'home'
 const USER_TAB = 'user'
@@ -141,6 +142,7 @@ function buildCompanyUrl(page, pageSize, filters) {
 
 function App() {
   const [session, setSession] = useState(loadStoredSession)
+  const [theme, setTheme] = useState(getPreferredTheme)
   const [authMode, setAuthMode] = useState('login')
   const [authForm, setAuthForm] = useState(emptyAuthForm)
   const [isAuthLoading, setIsAuthLoading] = useState(false)
@@ -174,6 +176,7 @@ function App() {
   const userFilterTimerRef = useRef(null)
   const companyFilterTimerRef = useRef(null)
 
+  const isDarkMode = theme === 'dark'
   const isAdmin = session?.account?.role === 'admin'
   const isLearnTab = mainTab === DRF_LEARN_TAB || mainTab === PYTHON_LEARN_TAB
   const currentUsers = users[userStatus]
@@ -203,6 +206,19 @@ function App() {
       ? 'Update Company'
       : 'Create Company'
   const accountCountLabel = getAccountCountLabel(accounts, dashboardSummary)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    }
+  }, [theme])
 
   useEffect(() => {
     if (!session?.access) {
@@ -1029,6 +1045,10 @@ function App() {
     loadCompanies(page, companies.pageSize, companyFilters)
   }
 
+  function toggleTheme() {
+    setTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'))
+  }
+
   if (!session?.access) {
     return (
       <>
@@ -1043,6 +1063,8 @@ function App() {
           onSubmit={handleAuthSubmit}
           onChange={updateAuthField}
           onModeChange={switchAuthMode}
+          isDarkMode={isDarkMode}
+          onThemeToggle={toggleTheme}
         />
       </>
     )
@@ -1160,6 +1182,14 @@ function App() {
                 Refresh View
               </button>
             )}
+            <button
+              type="button"
+              className="theme-toggle"
+              aria-pressed={isDarkMode}
+              onClick={toggleTheme}
+            >
+              {isDarkMode ? 'Light Mode' : 'Dark Mode'}
+            </button>
             <button type="button" onClick={() => handleLogout()}>
               Logout
             </button>
@@ -1269,6 +1299,8 @@ function AuthPage({
   onSubmit,
   onChange,
   onModeChange,
+  isDarkMode,
+  onThemeToggle,
 }) {
   const isSignup = mode === 'signup'
 
@@ -1284,6 +1316,18 @@ function AuthPage({
         </div>
 
         <div className="auth-card">
+          <div className="auth-card-top">
+            <span className="status-pill">Theme</span>
+            <button
+              type="button"
+              className="theme-toggle"
+              aria-pressed={isDarkMode}
+              onClick={onThemeToggle}
+            >
+              {isDarkMode ? 'Light Mode' : 'Dark Mode'}
+            </button>
+          </div>
+
           <div className="auth-tabs" aria-label="Auth mode">
             <button
               type="button"
@@ -2530,6 +2574,28 @@ function loadStoredSession() {
     clearStoredSession()
     return null
   }
+}
+
+function getPreferredTheme() {
+  if (typeof window === 'undefined') {
+    return 'light'
+  }
+
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+
+    if (storedTheme === 'dark' || storedTheme === 'light') {
+      return storedTheme
+    }
+
+    if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
+      return 'dark'
+    }
+  } catch {
+    return 'light'
+  }
+
+  return 'light'
 }
 
 function saveStoredSession(session) {
