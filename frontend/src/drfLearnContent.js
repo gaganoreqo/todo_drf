@@ -630,6 +630,46 @@ class UserListAPIView(APIView):
     },
   },
   {
+    id: 'generic-apiview',
+    title: 'GenericAPIView',
+    shortName: 'GenericAPIView',
+    summary: 'A DRF base class that gives queryset, serializer, lookup, filtering, and pagination helpers without adding CRUD actions by itself.',
+    bestFor: 'When you want get_queryset(), get_serializer(), and get_object() helpers but still want to write each HTTP method manually.',
+    methods: 'Define get(), post(), put(), patch(), and delete() yourself, then call GenericAPIView helpers inside them.',
+    exampleCode: `from rest_framework import generics, status
+from rest_framework.response import Response
+
+
+class UserListCreateGenericAPIView(generics.GenericAPIView):
+    queryset = UserDetail.objects.all()
+    serializer_class = UserDetailSerializer
+
+    def get(self, request):
+        users = self.get_queryset()
+        serializer = self.get_serializer(users, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)`,
+    pros: [
+      'Gives reusable helpers without forcing a concrete CRUD pattern.',
+      'Cleaner than APIView for model-backed endpoints.',
+      'Good bridge before learning mixins and concrete generic views.',
+    ],
+    cons: [
+      'Does not implement list, create, retrieve, update, or destroy automatically.',
+      'More manual code than mixins or concrete generic views.',
+      'Easy to confuse with ListCreateAPIView or RetrieveUpdateDestroyAPIView.',
+    ],
+    interview: {
+      q: 'What does GenericAPIView provide?',
+      a: 'GenericAPIView provides queryset and serializer helpers such as get_queryset(), get_serializer(), get_object(), filtering, pagination helpers, and lookup support. It does not provide CRUD actions unless you add mixins or write methods manually.',
+    },
+  },
+  {
     id: 'mixins',
     title: 'GenericAPIView with Mixins',
     shortName: 'Mixins',
@@ -775,6 +815,13 @@ export const drfComparisonRows = [
     urls: 'Manual path()',
     crud: 'Manual',
     bestUse: 'Custom class-based API',
+  },
+  {
+    name: 'GenericAPIView',
+    abstraction: 'Low-medium',
+    urls: 'Manual path()',
+    crud: 'Manual with generic helpers',
+    bestUse: 'Custom model API with serializer/queryset helpers',
   },
   {
     name: 'Mixins',
@@ -1373,6 +1420,69 @@ class UserDetailAPIView(APIView):
     # DELETE: DELETE /api/v1/users/1/
     def delete(self, request, pk):
         self.get_object(pk).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)`,
+  'generic-apiview': `from rest_framework import generics, status
+from rest_framework.response import Response
+
+
+class UserListCreateGenericAPIView(generics.GenericAPIView):
+    queryset = UserDetail.objects.all()
+    serializer_class = UserDetailSerializer
+
+    # LIST: GET /api/v1/users/
+    def get(self, request):
+        users = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(users)
+
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(users, many=True)
+        return Response(serializer.data)
+
+    # CREATE: POST /api/v1/users/
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class UserDetailGenericAPIView(generics.GenericAPIView):
+    queryset = UserDetail.objects.all()
+    serializer_class = UserDetailSerializer
+    lookup_field = "pk"
+
+    # GET BY ID: GET /api/v1/users/1/
+    def get(self, request, pk):
+        serializer = self.get_serializer(self.get_object())
+        return Response(serializer.data)
+
+    # UPDATE: PUT /api/v1/users/1/
+    def put(self, request, pk):
+        serializer = self.get_serializer(
+            self.get_object(),
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    # PARTIAL UPDATE: PATCH /api/v1/users/1/
+    def patch(self, request, pk):
+        serializer = self.get_serializer(
+            self.get_object(),
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    # DELETE: DELETE /api/v1/users/1/
+    def delete(self, request, pk):
+        self.get_object().delete()
         return Response(status=status.HTTP_204_NO_CONTENT)`,
   mixins: `from rest_framework import generics, mixins
 

@@ -264,7 +264,7 @@ function DrfSetsPage({ activeViewStyle }) {
       <header className="learn-hero">
         <div>
           <p className="eyebrow">DRF Sets</p>
-          <h2>FBV, CBV, Mixins, Generics, ViewSets, ModelViewSet</h2>
+          <h2>FBV, CBV, GenericAPIView, Mixins, Generics, ViewSets, ModelViewSet</h2>
           <p>
             Choose lower abstraction for custom control and higher abstraction for
             repeatable CRUD APIs.
