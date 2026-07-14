@@ -133,7 +133,10 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
             'company_name',
             'role',
             'location',
+            'created_at',
+            'updated_at',
         ]
+        read_only_fields = ['id', 'user_name', 'created_at', 'updated_at']
 
     def validate_company_name(self, value):
         company_name = value.strip()
@@ -205,6 +208,7 @@ class CompanyDetailSerializer(serializers.ModelSerializer):
                 updated_fields.append(field)
 
         if updated_fields:
+            updated_fields.append('updated_at')
             instance.save(update_fields=updated_fields)
 
         return instance
@@ -242,8 +246,16 @@ class CompanyDetailNestedSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CompanyDetail
-        fields = ['id', 'user_detail', 'company_name', 'role', 'location']
-        read_only_fields = ['id', 'user_detail']
+        fields = [
+            'id',
+            'user_detail',
+            'company_name',
+            'role',
+            'location',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'user_detail', 'created_at', 'updated_at']
 
     def validate_company_name(self, value):
         company_name = value.strip()
@@ -304,8 +316,17 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserDetail
-        fields = ['id', 'name', 'age', 'gender', 'is_deleted', 'company_detail']
-        read_only_fields = ['is_deleted']
+        fields = [
+            'id',
+            'name',
+            'age',
+            'gender',
+            'is_deleted',
+            'company_detail',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'is_deleted', 'created_at', 'updated_at']
 
     def validate_name(self, value):
         name = value.strip()
@@ -353,6 +374,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
                     updated_fields.append(field)
 
             if updated_fields:
+                updated_fields.append('updated_at')
                 instance.save(update_fields=updated_fields)
 
             if company_data:
@@ -372,6 +394,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
                             company_updated_fields.append(field)
 
                     if company_updated_fields:
+                        company_updated_fields.append('updated_at')
                         company_detail.save(update_fields=company_updated_fields)
 
         return instance

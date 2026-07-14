@@ -2,7 +2,15 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 
 
-class Account(models.Model):
+class TimestampedModel(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class Account(TimestampedModel):
     ROLE_ADMIN = 'admin'
     ROLE_USER = 'user'
     ROLE_CHOICES = [
@@ -19,9 +27,6 @@ class Account(models.Model):
         default=ROLE_USER,
     )
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         ordering = ['-created_at']
 
@@ -66,7 +71,7 @@ class DeletedUserDetailManager(models.Manager):
 
 
 # A simple database table for storing user details in the CRUD app.
-class UserDetail(models.Model):
+class UserDetail(TimestampedModel):
     name = models.CharField(max_length=255)
     age = models.PositiveIntegerField()
     gender = models.CharField(max_length=50)
@@ -87,7 +92,7 @@ class UserDetail(models.Model):
 
 
 # Company information connected to a user detail record by foreign key.
-class CompanyDetail(models.Model):
+class CompanyDetail(TimestampedModel):
     user_detail = models.ForeignKey(
         UserDetail,
         on_delete=models.CASCADE,

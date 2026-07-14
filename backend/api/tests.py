@@ -71,6 +71,24 @@ class UserDetailApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_request_timing_middleware_adds_response_header(self):
+        response = self.client.get(self.dashboard_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('X-Request-Duration-ms', response)
+        self.assertGreaterEqual(float(response['X-Request-Duration-ms']), 0)
+
+    def test_models_include_abstract_timestamps(self):
+        user = self.create_user()
+        company = self.create_company(user)
+
+        self.assertIsNotNone(self.admin_account.created_at)
+        self.assertIsNotNone(self.admin_account.updated_at)
+        self.assertIsNotNone(user.created_at)
+        self.assertIsNotNone(user.updated_at)
+        self.assertIsNotNone(company.created_at)
+        self.assertIsNotNone(company.updated_at)
+
     def test_signup_creates_first_account_as_admin(self):
         Account.objects.all().delete()
         self.client.credentials()

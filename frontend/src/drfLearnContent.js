@@ -351,6 +351,168 @@ def undelete(self, request, pk=None):
     ],
   },
   {
+    id: 'frontend-integration',
+    level: 'Intermediate',
+    title: 'Frontend API Integration',
+    goal: 'Connect React screens to DRF endpoints with clear URLs, headers, loading states, and error handling.',
+    terms: [
+      {
+        term: 'API base URL',
+        meaning: 'The shared root URL the frontend uses before endpoint paths, such as http://127.0.0.1:8000/api/v1/.',
+      },
+      {
+        term: 'fetch',
+        meaning: 'Browser API used by React code to send HTTP requests and receive responses.',
+      },
+      {
+        term: 'Authorization header',
+        meaning: 'Header used to send credentials such as Authorization: Bearer <access_token>.',
+      },
+      {
+        term: 'Loading state',
+        meaning: 'Frontend state that tells the UI a request is still running.',
+      },
+    ],
+    flow: [
+      'React builds the endpoint URL with query params.',
+      'The request includes JSON headers and the JWT when required.',
+      'DRF authenticates, validates, queries, and returns JSON.',
+      'React checks response.ok before reading or rendering data.',
+      'The UI updates loading, error, empty, and success states.',
+    ],
+    exampleTitle: 'React fetch request',
+    exampleCode: `const response = await fetch(
+  \`\${API_ROOT}user-details/?page=1&page_size=5\`,
+  {
+    headers: {
+      Authorization: \`Bearer \${accessToken}\`,
+      "Content-Type": "application/json",
+    },
+  },
+)
+
+if (!response.ok) {
+  throw new Error("Unable to load users.")
+}
+
+const data = await response.json()`,
+    interview: [
+      {
+        q: 'What should the frontend know about a DRF API?',
+        a: 'It should know the endpoint URL, HTTP method, request payload, response shape, required headers, status codes, and error format.',
+      },
+      {
+        q: 'Why use environment variables for API URLs?',
+        a: 'They let the same frontend code call localhost in development and the production API after deployment.',
+      },
+    ],
+  },
+  {
+    id: 'middleware',
+    level: 'Intermediate',
+    title: 'Django Middleware',
+    goal: 'Understand code that runs around every request before and after the view.',
+    terms: [
+      {
+        term: 'Middleware',
+        meaning: 'A callable layer that receives the request, calls the next layer, and can inspect or change the response.',
+      },
+      {
+        term: 'MIDDLEWARE setting',
+        meaning: 'The ordered list of middleware classes Django applies to each request.',
+      },
+      {
+        term: 'get_response',
+        meaning: 'The next middleware or final view callable that continues request processing.',
+      },
+      {
+        term: 'Response header',
+        meaning: 'Metadata returned with a response, such as X-Request-Duration-ms.',
+      },
+    ],
+    flow: [
+      'Django receives the HTTP request.',
+      'Middleware runs from top to bottom before the view.',
+      'The view or DRF ViewSet creates a response.',
+      'Middleware resumes from bottom to top after the view.',
+      'The final response is sent back to React or the browser.',
+    ],
+    exampleTitle: 'Request timing middleware',
+    exampleCode: `class RequestTimingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        started_at = perf_counter()
+        response = self.get_response(request)
+        duration_ms = (perf_counter() - started_at) * 1000
+        response["X-Request-Duration-ms"] = f"{duration_ms:.2f}"
+        return response`,
+    interview: [
+      {
+        q: 'What is Django middleware?',
+        a: 'Middleware is code that runs around requests and responses, commonly used for security, sessions, CORS, authentication support, logging, and response headers.',
+      },
+      {
+        q: 'Why does middleware order matter?',
+        a: 'Middleware runs in order on the way in and reverse order on the way out, so one middleware can depend on changes made by another.',
+      },
+    ],
+  },
+  {
+    id: 'abstract-models',
+    level: 'Intermediate',
+    title: 'Abstract Base Models',
+    goal: 'Reuse common model fields without creating an extra database table.',
+    terms: [
+      {
+        term: 'Abstract model',
+        meaning: 'A Django model base class with shared fields and Meta abstract = True.',
+      },
+      {
+        term: 'Concrete model',
+        meaning: 'A normal model that gets its own database table.',
+      },
+      {
+        term: 'Inherited field',
+        meaning: 'A field declared on an abstract parent but stored on each child model table.',
+      },
+      {
+        term: 'Timestamp fields',
+        meaning: 'created_at and updated_at fields commonly shared by many models.',
+      },
+    ],
+    flow: [
+      'Create a base class that inherits models.Model.',
+      'Put shared fields on the base class.',
+      'Set class Meta: abstract = True.',
+      'Make real models inherit from the base class.',
+      'Run migrations so inherited fields exist on each real table.',
+    ],
+    exampleTitle: 'Timestamped abstract model',
+    exampleCode: `class TimestampedModel(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class UserDetail(TimestampedModel):
+    name = models.CharField(max_length=255)
+    age = models.PositiveIntegerField()`,
+    interview: [
+      {
+        q: 'What does abstract = True do in Django models?',
+        a: 'It tells Django not to create a table for the base class. Its fields are copied into each concrete child model.',
+      },
+      {
+        q: 'When should you use an abstract base model?',
+        a: 'Use it when several models need the same fields or methods, such as created_at, updated_at, ownership, or soft-delete flags.',
+      },
+    ],
+  },
+  {
     id: 'testing-docs',
     level: 'Intermediate',
     title: 'Testing and Swagger/OpenAPI',
@@ -980,6 +1142,60 @@ export const drfTopicDeepDives = {
       body: 'Only expose safe ordering_fields. This prevents clients from sorting on fields that are slow, private, or not intended for API use.',
     },
   ],
+  'frontend-integration': [
+    {
+      title: 'The frontend depends on contracts',
+      body: 'React should not depend on model internals. It should depend on stable API contracts: URLs, methods, payload fields, response fields, and error shapes.',
+    },
+    {
+      title: 'Headers carry API context',
+      body: 'JSON requests usually send Content-Type and Accept headers. Protected endpoints also need Authorization so DRF can authenticate the requester.',
+    },
+    {
+      title: 'Query params power list screens',
+      body: 'Pagination, search, filters, and ordering are easiest to maintain when the frontend stores them as state and converts them into URL query params.',
+    },
+    {
+      title: 'Errors are part of the UI',
+      body: 'A production frontend should handle loading, empty, validation, unauthorized, forbidden, and server-error states instead of assuming every request succeeds.',
+    },
+  ],
+  middleware: [
+    {
+      title: 'Middleware wraps the view',
+      body: 'Django calls middleware before the view and then resumes it after the response exists. That makes middleware useful for cross-cutting behavior that should apply to many endpoints.',
+    },
+    {
+      title: 'Order changes behavior',
+      body: 'SecurityMiddleware, CORS middleware, session middleware, common middleware, CSRF middleware, authentication middleware, and custom middleware all run in the order listed in settings.py.',
+    },
+    {
+      title: 'Good middleware stays focused',
+      body: 'Middleware should handle request-wide concerns such as headers, logging, request IDs, timing, locale, or security checks. Endpoint business logic belongs in views, serializers, services, or permissions.',
+    },
+    {
+      title: 'Response headers help frontend debugging',
+      body: 'A timing header such as X-Request-Duration-ms lets frontend developers inspect backend response time directly in the browser network panel.',
+    },
+  ],
+  'abstract-models': [
+    {
+      title: 'Abstract means no parent table',
+      body: 'With abstract = True, Django does not create a table for the base class. Each child model gets its own copy of the inherited fields.',
+    },
+    {
+      title: 'Best for repeated fields',
+      body: 'created_at, updated_at, owner, status, and soft-delete flags are common candidates when several models need the same columns and behavior.',
+    },
+    {
+      title: 'Migrations still matter',
+      body: 'Adding a field to an abstract base model can change every concrete child table. Always review migrations because one small base-class change can affect many tables.',
+    },
+    {
+      title: 'Different from multi-table inheritance',
+      body: 'Abstract models copy fields into child tables. Multi-table inheritance creates a parent table and joins it to child tables, which is a different database shape.',
+    },
+  ],
   'testing-docs': [
     {
       title: 'Tests protect behavior',
@@ -1232,6 +1448,84 @@ Response:
   "previous": "...page=1",
   "results": []
 }`,
+  },
+  'frontend-integration': {
+    mustKnow: [
+      'Keep the API base URL configurable.',
+      'Always check response.ok before trusting the response body.',
+      'Send Authorization headers only to APIs that should receive the token.',
+      'Represent loading, error, empty, and success states separately.',
+      'Keep frontend field names aligned with serializer field names.',
+    ],
+    mistakes: [
+      'Hardcoding localhost API URLs into deployed frontend code.',
+      'Ignoring 401 and 403 responses and showing a generic error.',
+      'Duplicating backend validation rules only in React.',
+      'Refetching every row individually when one list endpoint can return joined data.',
+    ],
+    practiceTitle: 'List URL builder example',
+    practiceCode: `function buildUserUrl(page, pageSize, filters) {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  })
+
+  if (filters.search) {
+    params.set("search", filters.search)
+  }
+
+  return \`\${API_ROOT}user-details/?\${params.toString()}\`
+}`,
+  },
+  middleware: {
+    mustKnow: [
+      'Middleware is configured in the MIDDLEWARE list in settings.py.',
+      'Request middleware order is top to bottom.',
+      'Response middleware order is bottom to top.',
+      'Middleware is for app-wide request/response concerns.',
+      'Small headers can make backend behavior easier to inspect from the frontend.',
+    ],
+    mistakes: [
+      'Putting endpoint-specific business rules in middleware.',
+      'Adding database-heavy logic to every request.',
+      'Placing CORS middleware too late in the middleware list.',
+      'Forgetting that exceptions can skip normal response logic if not handled.',
+    ],
+    practiceTitle: 'Register custom middleware',
+    practiceCode: `MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "api.middleware.RequestTimingMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+]`,
+  },
+  'abstract-models': {
+    mustKnow: [
+      'abstract = True prevents a database table for the base model.',
+      'Inherited fields are created on each concrete child model table.',
+      'Changing an abstract base model can create migrations for many child models.',
+      'Abstract models are good for repeated fields and simple shared methods.',
+      'Do not use abstract inheritance when the base record must be queried directly.',
+    ],
+    mistakes: [
+      'Forgetting class Meta: abstract = True and accidentally creating a table.',
+      'Adding too many unrelated fields to one shared base model.',
+      'Changing the base model without reviewing every generated migration.',
+      'Expecting abstract models to support querying the parent class.',
+    ],
+    practiceTitle: 'Shared timestamp model',
+    practiceCode: `class TimestampedModel(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class CompanyDetail(TimestampedModel):
+    company_name = models.CharField(max_length=255)`,
   },
   'testing-docs': {
     mustKnow: [
@@ -1765,6 +2059,72 @@ export const drfExtraInterviewQuestions = {
       a: 'Invalid numeric query values should not crash the API or produce incorrect queries. They should return no data or a clear validation response.',
     },
   ],
+  'frontend-integration': [
+    {
+      q: 'Why should React not call database logic directly?',
+      a: 'The database is protected behind the backend. React should call API endpoints, and Django should handle validation, permissions, and database access.',
+    },
+    {
+      q: 'Where should the JWT be sent from the frontend?',
+      a: 'Send it in the Authorization header as Bearer <access_token> for protected API requests.',
+    },
+    {
+      q: 'What does response.ok check?',
+      a: 'It checks whether the HTTP status is in the 200 to 299 success range.',
+    },
+    {
+      q: 'Why do list screens use query params?',
+      a: 'Query params make page, page_size, search, filters, and ordering visible and easy for DRF to read from request.query_params.',
+    },
+    {
+      q: 'Why should frontend validation not be the only validation?',
+      a: 'Users can bypass frontend code. The backend must still validate data through serializers, permissions, and database constraints.',
+    },
+  ],
+  middleware: [
+    {
+      q: 'What are common uses for middleware?',
+      a: 'Common uses include security headers, CORS, sessions, CSRF, authentication support, logging, timing, request IDs, and locale selection.',
+    },
+    {
+      q: 'Can middleware return a response before the view runs?',
+      a: 'Yes. Middleware can short-circuit the request, for example by blocking a request or returning a redirect.',
+    },
+    {
+      q: 'Should validation rules be placed in middleware?',
+      a: 'Only request-wide validation belongs there. Endpoint input validation belongs in serializers or views.',
+    },
+    {
+      q: 'How do you register middleware?',
+      a: 'Add the Python import path of the middleware class to the MIDDLEWARE list in settings.py.',
+    },
+    {
+      q: 'Why might a frontend care about middleware?',
+      a: 'Middleware often controls CORS, authentication-related behavior, security headers, and debugging headers that affect browser requests.',
+    },
+  ],
+  'abstract-models': [
+    {
+      q: 'Does Django create a table for an abstract model?',
+      a: 'No. Django copies fields from the abstract model into each concrete child model table.',
+    },
+    {
+      q: 'What is a good example of abstract model reuse?',
+      a: 'A TimestampedModel with created_at and updated_at fields reused by Account, UserDetail, and CompanyDetail.',
+    },
+    {
+      q: 'What happens when you add a field to an abstract base model?',
+      a: 'Django generates schema changes for every concrete model that inherits from that base model.',
+    },
+    {
+      q: 'Abstract model vs proxy model?',
+      a: 'An abstract model shares fields and methods with child models. A proxy model changes Python behavior for an existing table without adding fields.',
+    },
+    {
+      q: 'Abstract model vs multi-table inheritance?',
+      a: 'Abstract inheritance does not create a parent table. Multi-table inheritance creates a parent table and joins child tables to it.',
+    },
+  ],
   'testing-docs': [
     {
       q: 'What should API tests verify besides status codes?',
@@ -1889,6 +2249,10 @@ export const modelGuideSections = {
       title: 'Field options',
       body: 'Options such as max_length, default, null, blank, unique, choices, db_index, and related_name control database behavior and validation behavior.',
     },
+    {
+      title: 'Abstract base models',
+      body: 'Abstract base models hold repeated fields or methods, such as created_at and updated_at, without creating a separate parent database table.',
+    },
   ],
   mustKnow: [
     'Every model class should represent one clear database concept.',
@@ -1897,6 +2261,7 @@ export const modelGuideSections = {
     'Use default=dict for JSONField defaults, not default={}.',
     'Use related_name for readable reverse relationships.',
     'Use constraints for business rules that must be protected at database level.',
+    'Use abstract base models for shared fields that should exist on many tables.',
   ],
   mistakes: [
     'Using null=True on CharField/TextField when blank=True is usually enough.',
@@ -1904,6 +2269,7 @@ export const modelGuideSections = {
     'Putting request/user-specific API logic inside model classes.',
     'Using CASCADE when child data should be protected.',
     'Relying only on serializer validation for rules that need database protection.',
+    'Forgetting abstract = True on a base model that should not get its own table.',
   ],
   fieldGroups: [
     {
@@ -1964,8 +2330,24 @@ export const modelGuideSections = {
     ['db_index=True', 'Adds an index for faster filtering/searching on that field.'],
     ['related_name', 'Reverse relation name for ForeignKey/OneToOne/ManyToMany.'],
     ['on_delete', 'Controls what happens to child rows when parent is deleted.'],
+    ['abstract = True', 'Makes a model reusable as a base class without creating its own table.'],
   ],
   examples: [
+    {
+      title: 'Abstract timestamp model',
+      code: `class TimestampedModel(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class UserDetail(TimestampedModel):
+    name = models.CharField(max_length=255)
+    age = models.PositiveIntegerField()
+    gender = models.CharField(max_length=50)`,
+    },
     {
       title: 'Basic model syntax',
       code: `from django.db import models
@@ -2286,6 +2668,74 @@ urlpatterns = [
     ],
   },
   {
+    id: 'middleware-file',
+    fileName: 'middleware.py',
+    title: 'Request and Response Middleware',
+    summary: 'middleware.py contains reusable request/response layers that run around Django views.',
+    mustKnow: [
+      'Middleware classes receive get_response in __init__.',
+      '__call__ receives the request and must return a response.',
+      'Middleware order in settings.py affects request and response behavior.',
+      'Use middleware for cross-cutting concerns, not endpoint-specific business rules.',
+      'Response headers from middleware are visible in the browser network panel.',
+    ],
+    mistakes: [
+      'Doing slow database work on every request.',
+      'Putting serializer validation or ViewSet logic in middleware.',
+      'Forgetting to register the middleware in settings.py.',
+      'Assuming middleware order does not matter.',
+    ],
+    examples: [
+      {
+        title: 'Request timing middleware',
+        code: `import logging
+from time import perf_counter
+
+
+logger = logging.getLogger(__name__)
+
+
+class RequestTimingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        started_at = perf_counter()
+        response = self.get_response(request)
+        duration_ms = (perf_counter() - started_at) * 1000
+
+        response["X-Request-Duration-ms"] = f"{duration_ms:.2f}"
+        logger.info(
+            "%s %s %s %.2fms",
+            request.method,
+            request.get_full_path(),
+            response.status_code,
+            duration_ms,
+        )
+        return response`,
+      },
+      {
+        title: 'settings.py registration',
+        code: `MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "api.middleware.RequestTimingMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+]`,
+      },
+      {
+        title: 'Frontend inspection',
+        code: `const response = await fetch("/api/v1/dashboard-summary/", {
+  headers: { Authorization: \`Bearer \${accessToken}\` },
+})
+
+console.log(response.headers.get("X-Request-Duration-ms"))`,
+      },
+    ],
+  },
+  {
     id: 'pagination',
     fileName: 'pagination.py',
     title: 'Pagination Classes',
@@ -2580,6 +3030,18 @@ export const drfGlossary = [
   ['ordering', 'Default sort order for a model or queryset.'],
   ['db_index', 'Database index for faster filtering or ordering.'],
   ['transaction.atomic', 'Runs database writes in one transaction with rollback on failure.'],
+  ['frontend API contract', 'Agreement between frontend and backend about URLs, methods, payloads, responses, errors, and headers.'],
+  ['API base URL', 'Root API URL used by the frontend before endpoint paths.'],
+  ['fetch', 'Browser API for making HTTP requests from JavaScript.'],
+  ['response.ok', 'Browser Response property that is true for HTTP 2xx statuses.'],
+  ['Middleware', 'Django layer that can inspect or change requests and responses around views.'],
+  ['get_response', 'Callable passed to middleware for continuing request processing.'],
+  ['MIDDLEWARE', 'Django settings list that controls enabled middleware and order.'],
+  ['response header', 'Metadata sent with an HTTP response, such as X-Request-Duration-ms.'],
+  ['abstract model', 'Django base model with abstract = True that shares fields without creating its own table.'],
+  ['concrete model', 'Normal Django model that gets a database table.'],
+  ['auto_now_add', 'DateTimeField option that stores the creation timestamp.'],
+  ['auto_now', 'DateTimeField option that updates the timestamp when a model is saved.'],
   ['content negotiation', 'DRF process for choosing parser/renderer based on request headers.'],
   ['parser_classes', 'Classes that parse incoming request bodies.'],
   ['renderer_classes', 'Classes that render response data.'],

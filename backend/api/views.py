@@ -203,7 +203,7 @@ class UserDetailViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         # Soft delete: keep the record in the database and mark it as deleted.
         instance.is_deleted = True
-        instance.save(update_fields=['is_deleted'])
+        instance.save(update_fields=['is_deleted', 'updated_at'])
 
     def destroy(self, request, *args, **kwargs):
         user_detail = self.get_object()
@@ -227,7 +227,7 @@ class UserDetailViewSet(viewsets.ModelViewSet):
         # Custom ViewSet action for restoring a soft-deleted record.
         user_detail = get_object_or_404(UserDetail.deleted_objects, pk=pk)
         user_detail.is_deleted = False
-        user_detail.save(update_fields=['is_deleted'])
+        user_detail.save(update_fields=['is_deleted', 'updated_at'])
         serializer = self.get_serializer(user_detail)
         return Response(serializer.data)
 
