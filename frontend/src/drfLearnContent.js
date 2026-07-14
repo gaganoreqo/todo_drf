@@ -56,6 +56,74 @@ Response:
     ],
   },
   {
+    id: 'project-structure',
+    level: 'Basic',
+    title: 'Basic DRF Things and Project App Structure',
+    goal: 'Understand the important DRF building blocks and where each file belongs in a Django project.',
+    terms: [
+      {
+        term: 'Project',
+        meaning: 'The Django configuration package that contains settings.py, root urls.py, asgi.py, and wsgi.py.',
+      },
+      {
+        term: 'App',
+        meaning: 'A focused Django module for one business area, such as api, users, products, or orders.',
+      },
+      {
+        term: 'settings.py',
+        meaning: 'Project configuration for installed apps, middleware, database, DRF settings, CORS, and schema tools.',
+      },
+      {
+        term: 'App urls.py',
+        meaning: 'The app-level URL file that maps API paths to views or DRF routers.',
+      },
+      {
+        term: 'View',
+        meaning: 'The request handler that chooses querysets, runs serializers, checks permissions, and returns responses.',
+      },
+    ],
+    flow: [
+      'manage.py runs Django commands for the project.',
+      'Project settings.py loads apps, middleware, database, and REST_FRAMEWORK config.',
+      'Project urls.py includes api.urls under a prefix such as /api/v1/.',
+      'App models.py defines database tables.',
+      'App serializers.py validates input and converts model data to JSON.',
+      'App views.py handles API request logic.',
+      'App urls.py registers ViewSets with a DRF router.',
+    ],
+    exampleTitle: 'Common DRF project tree',
+    exampleCode: `backend/
+  manage.py
+  backend/
+    settings.py
+    urls.py
+    asgi.py
+    wsgi.py
+  api/
+    models.py
+    serializers.py
+    views.py
+    urls.py
+    permissions.py
+    authentication.py
+    pagination.py
+    migrations/
+
+# Request path:
+# React -> /api/v1/user-details/ -> backend/urls.py
+# -> api/urls.py -> UserDetailViewSet -> serializer -> model`,
+    interview: [
+      {
+        q: 'What is the difference between a Django project and a Django app?',
+        a: 'A project holds site-wide configuration. An app holds focused feature code such as models, serializers, views, urls, tests, and migrations.',
+      },
+      {
+        q: 'Which files are most important in a basic DRF app?',
+        a: 'models.py, serializers.py, views.py, urls.py, permissions.py, tests.py, and migrations are the files most beginners should understand first.',
+      },
+    ],
+  },
+  {
     id: 'models-serializers',
     level: 'Basic',
     title: 'Models, Migrations, Serializers',
@@ -1034,6 +1102,24 @@ export const drfTopicDeepDives = {
       body: 'The frontend should not know database details. It should know only the API contract: URL, method, request payload, response shape, and possible errors.',
     },
   ],
+  'project-structure': [
+    {
+      title: 'Project files configure the whole backend',
+      body: 'The backend package contains global configuration. settings.py controls installed apps, middleware, database, CORS, DRF defaults, and documentation settings. The root urls.py decides which app URL files are mounted.',
+    },
+    {
+      title: 'App files hold feature code',
+      body: 'The api app contains the actual business API code. models.py stores database structure, serializers.py stores API input/output rules, views.py handles requests, and urls.py exposes routes.',
+    },
+    {
+      title: 'DRF adds API-specific layers',
+      body: 'Django gives models, URLs, settings, middleware, and migrations. DRF adds serializers, APIView, ViewSets, routers, permissions, authentication classes, pagination, filters, and Response.',
+    },
+    {
+      title: 'The request path should be traceable',
+      body: 'For any endpoint, you should be able to follow the path from frontend fetch URL, to project urls.py, to app urls.py, to view, to serializer, to model, and back as JSON.',
+    },
+  ],
   'models-serializers': [
     {
       title: 'Model is the database source',
@@ -1294,6 +1380,42 @@ Accept: application/json
 # Query params: page=1, ordering=-id
 # Header: Authorization
 # Body: none for GET`,
+  },
+  'project-structure': {
+    mustKnow: [
+      'A Django project is configuration; a Django app is feature code.',
+      'Add local and third-party apps to INSTALLED_APPS before using them.',
+      'Project urls.py usually includes app urls.py under a versioned API prefix.',
+      'Serializers are the API boundary between request data and model data.',
+      'Routers generate standard ViewSet URLs automatically.',
+      'Tests should call API endpoints, not only individual helper methods.',
+    ],
+    mistakes: [
+      'Putting all code into project settings or root urls.py instead of app files.',
+      'Creating serializers before the model fields are clear.',
+      'Forgetting to include app urls.py in the project urls.py.',
+      'Editing models.py and forgetting makemigrations and migrate.',
+      'Confusing app-level urls.py with project-level urls.py.',
+    ],
+    practiceTitle: 'Minimal DRF setup path',
+    practiceCode: `# backend/settings.py
+INSTALLED_APPS = [
+    "rest_framework",
+    "api",
+]
+
+# backend/urls.py
+urlpatterns = [
+    path("api/v1/", include("api.urls")),
+]
+
+# api/urls.py
+router = DefaultRouter()
+router.register("user-details", UserDetailViewSet, basename="user-detail")
+
+urlpatterns = [
+    path("", include(router.urls)),
+]`,
   },
   'models-serializers': {
     mustKnow: [
@@ -1925,6 +2047,28 @@ export const drfExtraInterviewQuestions = {
     {
       q: 'What is the browsable API useful for?',
       a: 'It lets developers inspect and test DRF endpoints directly in the browser without needing Postman or frontend code.',
+    },
+  ],
+  'project-structure': [
+    {
+      q: 'Why do Django projects have both project urls.py and app urls.py?',
+      a: 'Project urls.py controls global URL mounting. App urls.py keeps feature-specific routes close to the views and serializers they use.',
+    },
+    {
+      q: 'Where do you register rest_framework and local apps?',
+      a: 'Register them in INSTALLED_APPS inside settings.py so Django can discover their models, templates, migrations, and DRF behavior.',
+    },
+    {
+      q: 'Where should model fields be defined?',
+      a: 'Model fields belong in models.py because they define database tables and columns.',
+    },
+    {
+      q: 'Where should request validation be defined?',
+      a: 'Request validation usually belongs in serializers.py, especially for API payloads that create or update model data.',
+    },
+    {
+      q: 'Why use migrations?',
+      a: 'Migrations turn model changes into repeatable database schema changes that can be applied consistently across machines and environments.',
     },
   ],
   'models-serializers': [
@@ -2984,6 +3128,13 @@ class CompanyDetailAdmin(admin.ModelAdmin):
 ]
 
 export const drfGlossary = [
+  ['Django project', 'Site-wide Django configuration package with settings.py, root urls.py, asgi.py, and wsgi.py.'],
+  ['Django app', 'Focused Django module that contains feature code such as models, serializers, views, urls, tests, and migrations.'],
+  ['manage.py', 'Command-line entry point for Django commands such as runserver, makemigrations, migrate, and test.'],
+  ['settings.py', 'Project configuration file for installed apps, middleware, database, DRF settings, CORS, and schema settings.'],
+  ['INSTALLED_APPS', 'Django setting that enables Django apps and third-party packages for the project.'],
+  ['project urls.py', 'Root URL file that mounts app URL files under prefixes such as api/v1/.'],
+  ['app urls.py', 'Feature URL file that maps paths or routers to views inside one app.'],
   ['request.data', 'Parsed input body sent by the client.'],
   ['request.query_params', 'URL query values such as page, search, and ordering.'],
   ['Response', 'DRF response class that renders API data correctly.'],
